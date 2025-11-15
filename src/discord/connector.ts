@@ -472,10 +472,28 @@ export class DiscordConnector {
    */
   async deleteMessage(channelId: string, messageId: string): Promise<void> {
     return retryDiscord(async () => {
-      const channel = await this.client.channels.fetch(channelId) as TextChannel
-      const message = await channel.messages.fetch(messageId)
-      await message.delete()
-      logger.debug({ channelId, messageId }, 'Deleted message')
+      try {
+        const channel = await this.client.channels.fetch(channelId) as TextChannel
+        const message = await channel.messages.fetch(messageId)
+        
+        // Check if bot has permission to delete messages
+        const permissions = channel.permissionsFor(this.client.user!)
+        if (!permissions?.has('ManageMessages')) {
+          logger.error({ channelId, messageId }, 'Bot lacks MANAGE_MESSAGES permission to delete message')
+          throw new Error('Missing MANAGE_MESSAGES permission')
+        }
+        
+        await message.delete()
+        logger.info({ channelId, messageId, author: message.author?.username }, 'Successfully deleted m command message')
+      } catch (error: any) {
+        logger.error({ 
+          error: error.message, 
+          code: error.code,
+          channelId, 
+          messageId 
+        }, 'Failed to delete message')
+        throw error
+      }
     }, this.options.maxBackoffMs)
   }
 

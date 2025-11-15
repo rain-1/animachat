@@ -100,9 +100,20 @@ export class AgentLoop {
       const message = mCommandEvent.data as any
       try {
         await this.connector.deleteMessage(channelId, message.id)
-        logger.debug({ messageId: message.id }, 'Deleted m command message')
-      } catch (error) {
-        logger.warn({ error, messageId: message.id }, 'Failed to delete m command message')
+        logger.info({ 
+          messageId: message.id, 
+          channelId,
+          author: message.author?.username,
+          content: message.content?.substring(0, 50)
+        }, 'Deleted m command message')
+      } catch (error: any) {
+        logger.error({ 
+          error: error.message,
+          code: error.code,
+          messageId: message.id,
+          channelId,
+          author: message.author?.username
+        }, '⚠️  FAILED TO DELETE m COMMAND MESSAGE - Check bot permissions (needs MANAGE_MESSAGES)')
       }
     }
 
