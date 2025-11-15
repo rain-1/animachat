@@ -607,6 +607,38 @@ export class DiscordConnector {
     return configs
   }
 
+  /**
+   * Detect image type from magic bytes
+   */
+  private detectImageType(buffer: Buffer): string | null {
+    // Check magic bytes for common image formats
+    if (buffer.length < 4) return null
+    
+    // PNG: 89 50 4E 47
+    if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) {
+      return 'image/png'
+    }
+    
+    // JPEG: FF D8 FF
+    if (buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) {
+      return 'image/jpeg'
+    }
+    
+    // GIF: 47 49 46 38
+    if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x38) {
+      return 'image/gif'
+    }
+    
+    // WEBP: 52 49 46 46 ... 57 45 42 50
+    if (buffer.length >= 12 &&
+        buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
+        buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50) {
+      return 'image/webp'
+    }
+    
+    return null
+  }
+
   private async cacheImage(url: string, contentType: string): Promise<CachedImage | null> {
     // Check cache
     if (this.imageCache.has(url)) {
@@ -618,8 +650,11 @@ export class DiscordConnector {
       const response = await fetch(url)
       const buffer = Buffer.from(await response.arrayBuffer())
 
+      // Detect actual image format from magic bytes (don't trust Discord's contentType)
+      const actualMediaType = this.detectImageType(buffer) || contentType
+      
       const hash = createHash('sha256').update(buffer).digest('hex')
-      const ext = contentType.split('/')[1] || 'jpg'
+      const ext = actualMediaType.split('/')[1] || 'jpg'
       const filename = `${hash}.${ext}`
       const filepath = join(this.options.cacheDir, filename)
 
@@ -631,11 +666,17 @@ export class DiscordConnector {
       const cached: CachedImage = {
         url,
         data: buffer,
-        mediaType: contentType,
+        mediaType: actualMediaType,
         hash,
       }
 
       this.imageCache.set(url, cached)
+      
+      logger.debug({ 
+        url, 
+        discordType: contentType, 
+        detectedType: actualMediaType 
+      }, 'Cached image with type detection')
 
       return cached
     } catch (error) {
