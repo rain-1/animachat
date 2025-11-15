@@ -106,7 +106,6 @@ export class LLMMiddleware {
     const botName = request.config.botInnerName
     let lastNonEmptyParticipant: string | null = null
     let currentConversation: string[] = []
-    let toolsInserted = false
     
     // Add system prompt if present
     if (request.systemPrompt) {
@@ -123,24 +122,7 @@ export class LLMMiddleware {
       const hasImages = formatted.images.length > 0
       const isEmpty = !formatted.text.trim() && !hasImages
       
-      // Check if we need to insert tools at depth 2-3
-      if (!toolsInserted && request.tools && request.tools.length > 0 && currentConversation.length >= 3) {
-        // Flush current conversation
-        if (currentConversation.length > 0) {
-          messages.push({
-            role: 'assistant',
-            content: currentConversation.join('\n\n'),
-          })
-          currentConversation = []
-        }
-        
-        // Add tools
-        messages.push({
-          role: 'user',
-          content: this.formatToolsForPrefill(request.tools),
-        })
-        toolsInserted = true
-      }
+      // Don't insert tools yet - we'll add them near the end
       
       // If message has images, flush current conversation and add as user message
       if (hasImages && !isEmpty) {
@@ -194,12 +176,42 @@ export class LLMMiddleware {
       }
     }
     
-    // Flush any remaining conversation
+    // Flush any remaining conversation, but split to insert tools near the end
     if (currentConversation.length > 0) {
-      messages.push({
-        role: 'assistant',
-        content: currentConversation.join('\n\n'),
-      })
+      // Insert tools 2-3 messages from the end (before last few messages)
+      if (request.tools && request.tools.length > 0 && currentConversation.length > 3) {
+        const splitPoint = currentConversation.length - 3
+        const beforeTools = currentConversation.slice(0, splitPoint)
+        const afterTools = currentConversation.slice(splitPoint)
+        
+        // Add conversation before tools
+        if (beforeTools.length > 0) {
+          messages.push({
+            role: 'assistant',
+            content: beforeTools.join('\n\n'),
+          })
+        }
+        
+        // Add tools
+        messages.push({
+          role: 'user',
+          content: this.formatToolsForPrefill(request.tools),
+        })
+        
+        // Add last few messages after tools
+        if (afterTools.length > 0) {
+          messages.push({
+            role: 'assistant',
+            content: afterTools.join('\n\n'),
+          })
+        }
+      } else {
+        // Short conversation, just add everything
+        messages.push({
+          role: 'assistant',
+          content: currentConversation.join('\n\n'),
+        })
+      }
     }
 
     return {
