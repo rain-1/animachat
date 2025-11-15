@@ -130,7 +130,7 @@ export class LLMMiddleware {
         if (currentConversation.length > 0) {
           messages.push({
             role: 'assistant',
-            content: currentConversation.join('\n\n'),
+            content: currentConversation.join('\n'),
           })
           currentConversation = []
         }
@@ -184,11 +184,11 @@ export class LLMMiddleware {
         const beforeTools = currentConversation.slice(0, splitPoint)
         const afterTools = currentConversation.slice(splitPoint)
         
-        // Add conversation before tools
+        // Add conversation before tools (single newline separators)
         if (beforeTools.length > 0) {
           messages.push({
             role: 'assistant',
-            content: beforeTools.join('\n\n'),
+            content: beforeTools.join('\n'),
           })
         }
         
@@ -198,18 +198,18 @@ export class LLMMiddleware {
           content: this.formatToolsForPrefill(request.tools),
         })
         
-        // Add last few messages after tools
+        // Add last few messages after tools (single newline separators)
         if (afterTools.length > 0) {
           messages.push({
             role: 'assistant',
-            content: afterTools.join('\n\n'),
+            content: afterTools.join('\n'),
           })
         }
       } else {
-        // Short conversation, just add everything
+        // Short conversation, just add everything (single newline separators)
         messages.push({
           role: 'assistant',
-          content: currentConversation.join('\n\n'),
+          content: currentConversation.join('\n'),
         })
       }
     }
@@ -288,7 +288,7 @@ export class LLMMiddleware {
 
     return {
       role: 'user',
-      content: parts.join('\n\n'),
+      content: parts.join('\n'),
     }
   }
 
@@ -317,7 +317,7 @@ export class LLMMiddleware {
       }
     }
 
-    return {text: parts.join('\n\n'), images}
+    return {text: parts.join('\n'), images}
   }
 
   private extractText(content: ContentBlock[]): string {

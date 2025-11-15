@@ -266,12 +266,16 @@ export class ContextBuilder {
     // Create image lookup
     const imageMap = new Map(images.map((img) => [img.url, img]))
     
+    // Track image count to enforce maxImages limit
+    let imageCount = 0
+    const maxImages = config.maxImages || 5
+    
     logger.debug({
       messageCount: messages.length,
       cachedImages: images.length,
       imageUrls: images.map(i => i.url),
       includeImages: config.includeImages,
-      maxImages: config.maxImages
+      maxImages
     }, 'Starting formatMessages with images')
 
     for (const msg of messages) {
@@ -286,17 +290,23 @@ export class ContextBuilder {
       }
 
       // Add image content (if enabled and within limit)
-      if (config.includeImages && msg.attachments.length > 0) {
+      if (config.includeImages && msg.attachments.length > 0 && imageCount < maxImages) {
         logger.debug({ messageId: msg.id, attachments: msg.attachments.length }, 'Processing attachments for message')
         
         for (const attachment of msg.attachments) {
+          if (imageCount >= maxImages) {
+            logger.debug({ maxImages, currentCount: imageCount }, 'Reached maxImages limit, skipping remaining images')
+            break
+          }
+          
           if (attachment.contentType?.startsWith('image/')) {
             const cached = imageMap.get(attachment.url)
             logger.debug({ 
               url: attachment.url, 
               cached: !!cached,
               inMap: imageMap.has(attachment.url),
-              mapSize: imageMap.size
+              mapSize: imageMap.size,
+              currentImageCount: imageCount
             }, 'Looking up cached image')
             
             if (cached) {
@@ -308,7 +318,13 @@ export class ContextBuilder {
                   media_type: cached.mediaType,  // Anthropic API uses snake_case
                 },
               })
-              logger.debug({ messageId: msg.id, imageSize: cached.data.length }, 'Added image to content')
+              imageCount++
+              logger.debug({ 
+                messageId: msg.id, 
+                imageSize: cached.data.length, 
+                imageCount, 
+                maxImages 
+              }, 'Added image to content')
             }
           }
         }
