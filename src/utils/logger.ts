@@ -1,9 +1,10 @@
 /**
  * Structured logging with pino
- * Supports per-activation file logging
+ * Supports per-activation file logging with async context tracking
  */
 
 import pino from 'pino'
+import { AsyncLocalStorage } from 'async_hooks'
 import { existsSync, mkdirSync, createWriteStream } from 'fs'
 import { join } from 'path'
 
@@ -37,12 +38,19 @@ const generalFileLogger = pino({
   level: 'debug',
 }, generalLogStream)
 
-// Track current activation context
-let currentActivationLogger: pino.Logger | null = null
-let currentActivationId: string | null = null
+// Async context storage for tracking which activation we're in
+interface ActivationContext {
+  logger: pino.Logger
+  id: string
+}
+
+const activationContext = new AsyncLocalStorage<ActivationContext>()
+
+// Map to track all active activation loggers
+const activationLoggers = new Map<string, { logger: pino.Logger, stream: NodeJS.WritableStream }>()
 
 /**
- * Main logger - routes to console + general file OR activation file
+ * Main logger - routes to console + (activation file OR general file)
  */
 export const logger = new Proxy(baseLogger, {
   get(target, prop: string) {
@@ -51,10 +59,11 @@ export const logger = new Proxy(baseLogger, {
         // Log to console
         (target as any)[prop](...args)
         
-        // Log to file
-        if (currentActivationLogger) {
+        // Log to file - check async context first
+        const context = activationContext.getStore()
+        if (context?.logger) {
           // Inside activation - log to activation file
-          (currentActivationLogger as any)[prop](...args)
+          (context.logger as any)[prop](...args)
         } else {
           // Outside activation - log to general file
           (generalFileLogger as any)[prop](...args)
@@ -66,32 +75,54 @@ export const logger = new Proxy(baseLogger, {
 })
 
 /**
- * Start logging to an activation-specific file
+ * Run a function with activation-specific logging context
  */
-export function startActivationLogging(channelId: string, messageId: string): void {
+export async function withActivationLogging<T>(
+  channelId: string,
+  messageId: string,
+  fn: () => Promise<T>
+): Promise<T> {
   const timestamp = new Date().toISOString().replace(/:/g, '-').split('.')[0]
   const filename = `${channelId}-${messageId}-${timestamp}.log`
   const filePath = join(logDir, filename)
+  const activationId = `${channelId}:${messageId}`
   
   const stream = createWriteStream(filePath, { flags: 'a' })
-  currentActivationLogger = pino({
+  const activationLogger = pino({
     level: 'debug',
   }, stream)
   
-  currentActivationId = `${channelId}:${messageId}`
+  activationLoggers.set(activationId, { logger: activationLogger, stream })
   
   logger.debug({ channelId, messageId, logFile: filename }, 'Started activation logging')
+  
+  try {
+    // Run the function with this activation's context
+    return await activationContext.run(
+      { logger: activationLogger, id: activationId },
+      fn
+    )
+  } finally {
+    logger.debug({ activationId }, 'Stopped activation logging')
+    
+    // Clean up
+    const entry = activationLoggers.get(activationId)
+    if (entry) {
+      entry.stream.end()
+      activationLoggers.delete(activationId)
+    }
+  }
 }
 
 /**
- * Stop activation logging and return to general logging
+ * Legacy functions for backward compatibility (now no-ops since we use withActivationLogging)
  */
+export function startActivationLogging(_channelId: string, _messageId: string): void {
+  // No-op - using withActivationLogging instead
+}
+
 export function stopActivationLogging(): void {
-  if (currentActivationLogger) {
-    logger.debug({ activationId: currentActivationId }, 'Stopped activation logging')
-    currentActivationLogger = null
-    currentActivationId = null
-  }
+  // No-op - using withActivationLogging instead
 }
 
 /**
