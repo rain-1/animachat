@@ -273,6 +273,20 @@ export class AgentLoop {
         authorizedRoles: config.authorizedRoles,
       })
 
+      // Filter out "m " command messages from context (they should be deleted but might still be fetched)
+      const originalCount = discordContext.messages.length
+      discordContext.messages = discordContext.messages.filter(msg => {
+        const content = msg.content?.trim()
+        return !content?.startsWith('m ')
+      })
+      
+      if (discordContext.messages.length < originalCount) {
+        logger.debug({ 
+          filtered: originalCount - discordContext.messages.length,
+          remaining: discordContext.messages.length
+        }, 'Filtered m commands from context')
+      }
+
       // 4. Prune tool cache to remove tools older than oldest message
       if (discordContext.messages.length > 0) {
         const oldestMessageId = discordContext.messages[0]!.id
