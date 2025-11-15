@@ -109,16 +109,16 @@ export class ContextBuilder {
     })
 
     // 8. Build stop sequences (from recent participants only)
-    const stopSequences = this.buildStopSequences(participantMessages, config)
+    const stop_sequences = this.buildStopSequences(participantMessages, config)
 
-    logger.debug({ stopSequences, participantCount: participantMessages.length }, 'Built stop sequences')
+    logger.debug({ stop_sequences, participantCount: participantMessages.length }, 'Built stop sequences')
 
     const request: LLMRequest = {
       messages: participantMessages,
-      systemPrompt: config.systemPrompt,
+      system_prompt: config.system_prompt,
       config: this.extractModelConfig(config),
-      tools: config.toolsEnabled ? undefined : undefined,  // Tools added by Agent Loop
-      stopSequences,
+      tools: config.tools_enabled ? undefined : undefined,  // Tools added by Agent Loop
+      stop_sequences,
     }
 
     return {
@@ -457,15 +457,15 @@ export class ContextBuilder {
     // Anthropic has ~10MB total request limit, we want to keep images under 3-4MB
     let imageCount = 0
     let totalBase64Size = 0
-    const maxImages = config.maxImages || 5
+    const max_images = config.max_images || 5
     const maxTotalBase64Bytes = 3 * 1024 * 1024  // 3 MB total base64 data for images
     
     logger.debug({
       messageCount: messages.length,
       cachedImages: images.length,
       imageUrls: images.map(i => i.url),
-      includeImages: config.includeImages,
-      maxImages,
+      include_images: config.include_images,
+      max_images,
       maxTotalImageMB: maxTotalBase64Bytes / 1024 / 1024
     }, 'Starting formatMessages with images')
 
@@ -481,12 +481,12 @@ export class ContextBuilder {
       }
 
       // Add image content (if enabled and within limits)
-      if (config.includeImages && msg.attachments.length > 0 && imageCount < maxImages) {
+      if (config.include_images && msg.attachments.length > 0 && imageCount < max_images) {
         logger.debug({ messageId: msg.id, attachments: msg.attachments.length }, 'Processing attachments for message')
         
         for (const attachment of msg.attachments) {
-          if (imageCount >= maxImages) {
-            logger.debug({ maxImages, currentCount: imageCount }, 'Reached maxImages count limit, skipping remaining images')
+          if (imageCount >= max_images) {
+            logger.debug({ max_images, currentCount: imageCount }, 'Reached max_images count limit, skipping remaining images')
             break
           }
           
@@ -530,7 +530,7 @@ export class ContextBuilder {
               logger.debug({ 
                 messageId: msg.id, 
                 imageCount, 
-                maxImages,
+                max_images,
                 totalImageMB: (totalBase64Size / 1024 / 1024).toFixed(2)
               }, 'Added image to content')
             }
@@ -547,14 +547,14 @@ export class ContextBuilder {
     }
 
     // Limit images if needed
-    if (config.includeImages && config.maxImages > 0) {
-      this.limitImages(participantMessages, config.maxImages)
+    if (config.include_images && config.max_images > 0) {
+      this.limitImages(participantMessages, config.max_images)
     }
 
     return participantMessages
   }
 
-  private limitImages(messages: ParticipantMessage[], maxImages: number): void {
+  private limitImages(messages: ParticipantMessage[], max_images: number): void {
     // Count and collect image positions
     let imageCount = 0
     const imagePositions: Array<{ msgIndex: number; contentIndex: number }> = []
@@ -570,8 +570,8 @@ export class ContextBuilder {
     }
 
     // Remove oldest images if over limit
-    if (imageCount > maxImages) {
-      const toRemove = imageCount - maxImages
+    if (imageCount > max_images) {
+      const toRemove = imageCount - max_images
 
       for (let i = 0; i < toRemove; i++) {
         const pos = imagePositions[i]!
@@ -670,17 +670,17 @@ export class ContextBuilder {
     }
 
     // Add configured stop sequences
-    sequences.push(...config.stopSequences)
+    sequences.push(...config.stop_sequences)
 
     return sequences
   }
 
   private extractModelConfig(config: BotConfig): ModelConfig {
     return {
-      model: config.continuationModel,
+      model: config.continuation_model,
       temperature: config.temperature,
-      maxTokens: config.maxTokens,
-      topP: config.topP,
+      max_tokens: config.max_tokens,
+      top_p: config.top_p,
       mode: config.mode,
       botInnerName: config.innerName,
     }

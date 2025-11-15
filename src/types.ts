@@ -15,10 +15,10 @@
  */
 export interface LLMRequest {
   messages: ParticipantMessage[]
-  systemPrompt?: string
+  system_prompt?: string
   config: ModelConfig
   tools?: ToolDefinition[]
-  stopSequences?: string[]
+  stop_sequences?: string[]
 }
 
 /**
@@ -121,8 +121,8 @@ export interface UsageInfo {
 export interface ModelConfig {
   model: string
   temperature: number
-  maxTokens: number
-  topP: number
+  max_tokens: number
+  top_p: number
   mode: 'prefill' | 'chat'
   botInnerName: string  // For building stop sequences
 }
@@ -133,14 +133,14 @@ export interface ModelConfig {
 export interface BotConfig {
   // Identity
   name: string
-  innerName: string
+  innerName: string  // Keep camelCase for internal use
   
   // Model config
   mode: 'prefill' | 'chat'
-  continuationModel: string
+  continuation_model: string
   temperature: number
-  maxTokens: number
-  topP: number
+  max_tokens: number
+  top_p: number
   
   // Context config
   recency_window_messages?: number  // Max number of messages
@@ -151,27 +151,27 @@ export interface BotConfig {
   authorized_roles: string[]  // Roles authorized to use .history commands
   
   // Image config
-  includeImages: boolean
-  maxImages: number
+  include_images: boolean
+  max_images: number
   
   // Tool config
-  toolsEnabled: boolean
-  toolOutputVisible: boolean
-  maxToolDepth: number
-  mcpServers?: MCPServerConfig[]
+  tools_enabled: boolean
+  tool_output_visible: boolean
+  max_tool_depth: number
+  mcp_servers?: MCPServerConfig[]
   
   // Stop sequences
-  stopSequences: string[]
+  stop_sequences: string[]
   
   // Retries
-  llmRetries: number
-  discordBackoffMax: number
+  llm_retries: number
+  discord_backoff_max: number
   
   // Misc
-  systemPrompt?: string
-  replyOnRandom: number
-  replyOnName: boolean
-  maxQueuedReplies: number
+  system_prompt?: string
+  reply_on_random: number
+  reply_on_name: boolean
+  max_queued_replies: number
 }
 
 /**

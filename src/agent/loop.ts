@@ -211,10 +211,10 @@ export class AgentLoop {
         }
       }
       
-      if (config.replyOnRandom > 0) {
+      if (config.reply_on_random > 0) {
         const chance = Math.random()
-        if (chance < 1 / config.replyOnRandom) {
-          logger.debug({ messageId: message.id, chance, threshold: 1 / config.replyOnRandom }, 'Activated by random chance')
+        if (chance < 1 / config.reply_on_random) {
+          logger.debug({ messageId: message.id, chance, threshold: 1 / config.reply_on_random }, 'Activated by random chance')
           return true
         }
       }
@@ -256,9 +256,9 @@ export class AgentLoop {
       })
 
       // Initialize MCP servers from config (once per bot)
-      if (!this.mcpInitialized && config.mcpServers && config.mcpServers.length > 0) {
-        logger.info({ serverCount: config.mcpServers.length }, 'Initializing MCP servers from config')
-        await this.toolSystem.initializeServers(config.mcpServers)
+      if (!this.mcpInitialized && config.mcp_servers && config.mcp_servers.length > 0) {
+        logger.info({ serverCount: config.mcp_servers.length }, 'Initializing MCP servers from config')
+        await this.toolSystem.initializeServers(config.mcp_servers)
         this.mcpInitialized = true
       }
 
@@ -294,7 +294,7 @@ export class AgentLoop {
       const contextResult = this.contextBuilder.buildContext(buildParams)
 
       // Add tools if enabled
-      if (config.toolsEnabled) {
+      if (config.tools_enabled) {
         contextResult.request.tools = this.toolSystem.getAvailableTools()
       }
 
@@ -371,7 +371,7 @@ export class AgentLoop {
     let currentRequest = llmRequest
     let allToolResults: Array<{ call: any; result: any }> = []
 
-    while (depth < config.maxToolDepth) {
+    while (depth < config.max_tool_depth) {
       const completion = await this.llmMiddleware.complete(currentRequest)
 
       // Check for tool use (native tool_use blocks in chat mode)
@@ -433,7 +433,7 @@ export class AgentLoop {
         toolResults.push({ call: toolCall, result: result.output })
 
         // Send tool output to Discord if visible (with period prefix to hide from bots)
-        if (config.toolOutputVisible) {
+        if (config.tool_output_visible) {
           const toolMessage = `.${config.innerName}>[${toolCall.name}]: ${JSON.stringify(toolCall.input)}\n.${config.innerName}<[${toolCall.name}]: ${result.output}`
           await this.connector.sendWebhook(channelId, toolMessage, config.innerName)
         }

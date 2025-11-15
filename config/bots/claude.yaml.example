@@ -6,10 +6,10 @@ innerName: Claude
 
 # Model configuration
 mode: prefill  # or 'chat'
-continuationModel: claude-3-5-sonnet-20241022
+continuation_model: claude-3-5-sonnet-20241022
 temperature: 1.0
-maxTokens: 4096
-topP: 1.0
+max_tokens: 4096
+top_p: 1.0
 
 # Context configuration
 recency_window_messages: 400  # Optional: Max messages to include
@@ -22,16 +22,16 @@ authorized_roles: []  # Roles authorized for .history commands (empty = all allo
 # authorized_roles: ["Admin", "Moderator"]  # Example: restrict to specific roles
 
 # Image configuration
-includeImages: true
-maxImages: 5
+include_images: true
+max_images: 5
 
 # Tool configuration
-toolsEnabled: true
-toolOutputVisible: false  # Show tool calls in Discord
-maxToolDepth: 100  # Max tool call iterations
+tools_enabled: true
+tool_output_visible: false  # Show tool calls in Discord
+max_tool_depth: 100  # Max tool call iterations
 
 # MCP Servers (optional - configure multiple servers)
-# mcpServers:
+# mcp_servers:
 #   - name: filesystem
 #     command: npx
 #     args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
@@ -47,17 +47,17 @@ maxToolDepth: 100  # Max tool call iterations
 #       GITHUB_TOKEN: "your-github-token"
 
 # Stop sequences (in addition to participant names)
-stopSequences: []
+stop_sequences: []
 
 # Retry configuration
-llmRetries: 3
-discordBackoffMax: 32000  # Max backoff in ms for Discord API
+llm_retries: 3
+discord_backoff_max: 32000  # Max backoff in ms for Discord API
 
 # Optional system prompt
-# systemPrompt: "You are a helpful assistant."
+# system_prompt: "You are a helpful assistant."
 
 # Misc
-replyOnRandom: 500  # Random reply: 1/N chance per message (default 500 = 0.2% chance)
-replyOnName: false  # Reply when name is mentioned (not yet implemented)
-maxQueuedReplies: 1  # Max queued replies before dropping
+reply_on_random: 500  # Random reply: 1/N chance per message (default 500 = 0.2% chance)
+reply_on_name: false  # Reply when name is mentioned (not yet implemented)
+max_queued_replies: 1  # Max queued replies before dropping
 

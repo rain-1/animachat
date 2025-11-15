@@ -135,10 +135,10 @@ export class ConfigSystem {
 
       // Model config
       mode: config.mode || 'prefill',
-      continuationModel: config.continuationModel || '',
+      continuation_model: config.continuation_model || '',
       temperature: config.temperature ?? 1.0,
-      maxTokens: config.maxTokens || 4096,
-      topP: config.topP ?? 1.0,
+      max_tokens: config.max_tokens || 4096,
+      top_p: config.top_p ?? 1.0,
 
       // Context config
       recency_window_messages: config.recency_window_messages,
@@ -149,47 +149,47 @@ export class ConfigSystem {
       authorized_roles: config.authorized_roles || [],
 
       // Image config
-      includeImages: config.includeImages ?? true,
-      maxImages: config.maxImages || 5,
+      include_images: config.include_images ?? true,
+      max_images: config.max_images || 5,
 
       // Tool config
-      toolsEnabled: config.toolsEnabled ?? true,
-      toolOutputVisible: config.toolOutputVisible ?? false,
-      maxToolDepth: config.maxToolDepth || 100,
-      mcpServers: config.mcpServers,
+      tools_enabled: config.tools_enabled ?? true,
+      tool_output_visible: config.tool_output_visible ?? false,
+      max_tool_depth: config.max_tool_depth || 100,
+      mcp_servers: config.mcp_servers,
 
       // Stop sequences
-      stopSequences: config.stopSequences || [],
+      stop_sequences: config.stop_sequences || [],
 
       // Retries
-      llmRetries: config.llmRetries || 3,
-      discordBackoffMax: config.discordBackoffMax || 32000,
+      llm_retries: config.llm_retries || 3,
+      discord_backoff_max: config.discord_backoff_max || 32000,
 
       // Misc
-      systemPrompt: config.systemPrompt,
-      replyOnRandom: config.replyOnRandom ?? 500,
-      replyOnName: config.replyOnName ?? false,
-      maxQueuedReplies: config.maxQueuedReplies || 1,
+      system_prompt: config.system_prompt,
+      reply_on_random: config.reply_on_random ?? 500,
+      reply_on_name: config.reply_on_name ?? false,
+      max_queued_replies: config.max_queued_replies || 1,
     }
   }
 
   private validateConfig(config: BotConfig): void {
     validateBotConfig(config)
 
-    if (!config.continuationModel) {
-      throw new ConfigError('continuationModel is required')
+    if (!config.continuation_model) {
+      throw new ConfigError('continuation_model is required')
     }
 
     if (config.temperature < 0 || config.temperature > 2) {
       throw new ConfigError('temperature must be between 0 and 2')
     }
 
-    if (config.maxTokens <= 0) {
-      throw new ConfigError('maxTokens must be positive')
+    if (config.max_tokens <= 0) {
+      throw new ConfigError('max_tokens must be positive')
     }
 
-    if (config.topP < 0 || config.topP > 1) {
-      throw new ConfigError('topP must be between 0 and 1')
+    if (config.top_p < 0 || config.top_p > 1) {
+      throw new ConfigError('top_p must be between 0 and 1')
     }
   }
 }

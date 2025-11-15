@@ -34,10 +34,10 @@ export class AnthropicProvider implements LLMProvider {
       // Build request params (some models don't support both temperature and top_p)
       const params: any = {
         model: request.model,
-        max_tokens: request.maxTokens,
+        max_tokens: request.max_tokens,
         system: systemMessages || undefined,
         messages: nonSystemMessages,
-        stop_sequences: request.stopSequences,
+        stop_sequences: request.stop_sequences,
       }
 
       // Only include temperature (not top_p) to avoid API errors with newer models

@@ -26,9 +26,9 @@ export interface ProviderRequest {
   messages: ProviderMessage[]
   model: string
   temperature: number
-  maxTokens: number
-  topP: number
-  stopSequences?: string[]
+  max_tokens: number
+  top_p: number
+  stop_sequences?: string[]
   tools?: any[]
 }
 
@@ -108,10 +108,10 @@ export class LLMMiddleware {
     let currentConversation: string[] = []
     
     // Add system prompt if present
-    if (request.systemPrompt) {
+    if (request.system_prompt) {
       messages.push({
         role: 'system',
-        content: request.systemPrompt,
+        content: request.system_prompt,
       })
     }
     
@@ -218,9 +218,9 @@ export class LLMMiddleware {
       messages,
       model: request.config.model,
       temperature: request.config.temperature,
-      maxTokens: request.config.maxTokens,
-      topP: request.config.topP,
-      stopSequences: request.stopSequences,
+      max_tokens: request.config.max_tokens,
+      top_p: request.config.top_p,
+      stop_sequences: request.stop_sequences,
       tools: undefined,  // Don't use native tool use in prefill mode
     }
   }
@@ -229,10 +229,10 @@ export class LLMMiddleware {
     const messages: ProviderMessage[] = []
 
     // Add system prompt
-    if (request.systemPrompt) {
+    if (request.system_prompt) {
       messages.push({
         role: 'system',
-        content: request.systemPrompt,
+        content: request.system_prompt,
       })
     }
 
@@ -270,8 +270,8 @@ export class LLMMiddleware {
       messages,
       model: request.config.model,
       temperature: request.config.temperature,
-      maxTokens: request.config.maxTokens,
-      topP: request.config.topP,
+      max_tokens: request.config.max_tokens,
+      top_p: request.config.top_p,
       tools: request.tools,
     }
   }
