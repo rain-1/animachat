@@ -13,6 +13,7 @@ discord_token
 logs/
 *.log
 bot.log
+logs/activations/
 
 # Cache
 cache/

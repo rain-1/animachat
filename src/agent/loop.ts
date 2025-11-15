@@ -11,7 +11,7 @@ import { ContextBuilder, BuildContextParams } from '../context/builder.js'
 import { LLMMiddleware } from '../llm/middleware.js'
 import { ToolSystem } from '../tools/system.js'
 import { Event, BotConfig } from '../types.js'
-import { logger } from '../utils/logger.js'
+import { logger, startActivationLogging, stopActivationLogging } from '../utils/logger.js'
 import { sleep } from '../utils/retry.js'
 
 export class AgentLoop {
@@ -224,6 +224,11 @@ export class AgentLoop {
   }
 
   private async handleActivation(channelId: string, guildId: string, triggeringMessageId?: string): Promise<void> {
+    // Start activation-specific logging
+    if (triggeringMessageId) {
+      startActivationLogging(channelId, triggeringMessageId)
+    }
+    
     logger.info({ botId: this.botId, channelId, guildId, triggeringMessageId }, 'Bot activated')
 
     // Start typing indicator
@@ -358,6 +363,9 @@ export class AgentLoop {
     } catch (error) {
       await this.connector.stopTyping(channelId)
       throw error
+    } finally {
+      // Stop activation-specific logging
+      stopActivationLogging()
     }
   }
 
