@@ -43,6 +43,8 @@ export interface MessageExportResponse {
       filename: string
       contentType?: string
       size: number
+      base64Data?: string  // Base64-encoded image data
+      mediaType?: string   // Detected MIME type
     }>
     referencedMessageId?: string
   }>
@@ -224,6 +226,11 @@ export class ApiServer {
       logger.debug({ beforeTruncate: messagesBeforeTruncation, afterTruncate: messages.length }, 'Applied recency window')
     }
 
+    // Download and cache images from attachments
+    logger.debug('Downloading images')
+    const imageCache = await this.downloadImages(rawMessages)
+    logger.debug({ cachedImages: imageCache.size }, 'Image download complete')
+
     // Transform to export format (from DiscordMessage to API format)
     const exportedMessages = messages.map((msg: any) => ({
       id: msg.id,
@@ -237,13 +244,18 @@ export class ApiServer {
       content: msg.content,
       timestamp: msg.timestamp.toISOString(),
       reactions: msg.reactions || [],
-      attachments: msg.attachments.map((att: any) => ({
-        id: att.id,
-        url: att.url,
-        filename: att.filename,
-        contentType: att.contentType,
-        size: att.size,
-      })),
+      attachments: msg.attachments.map((att: any) => {
+        const cached = imageCache.get(att.url)
+        return {
+          id: att.id,
+          url: att.url,
+          filename: att.filename,
+          contentType: att.contentType,
+          size: att.size,
+          base64Data: cached ? cached.data.toString('base64') : undefined,
+          mediaType: cached ? cached.mediaType : undefined,
+        }
+      }),
       referencedMessageId: msg.referencedMessage,
     }))
 
@@ -261,6 +273,38 @@ export class ApiServer {
         truncated: wasExplicitlyTruncated,
       },
     }
+  }
+
+  private async downloadImages(messages: any[]): Promise<Map<string, any>> {
+    const imageCache = new Map<string, any>()
+    
+    // Collect all image URLs
+    const imageUrls: Array<{url: string, contentType: string}> = []
+    for (const msg of messages) {
+      const attachments = Array.from(msg.attachments.values())
+      for (const att of attachments) {
+        const attachment = att as any
+        if (attachment.contentType?.startsWith('image/')) {
+          imageUrls.push({ url: attachment.url, contentType: attachment.contentType })
+        }
+      }
+    }
+    
+    logger.debug({ imageCount: imageUrls.length }, 'Found images to download')
+    
+    // Download images using connector's cache method
+    for (const {url, contentType} of imageUrls) {
+      try {
+        const cached = await (this.connector as any).cacheImage(url, contentType)
+        if (cached) {
+          imageCache.set(url, cached)
+        }
+      } catch (error) {
+        logger.warn({ error, url }, 'Failed to cache image for API export')
+      }
+    }
+    
+    return imageCache
   }
 
   private async getUserInfo(userId: string, guildId?: string): Promise<any> {
