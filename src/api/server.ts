@@ -193,26 +193,31 @@ export class ApiServer {
       throw new Error(`Channel ${channelId} not found or not text-based`)
     }
 
+    // Determine recency window (default: 50 messages)
+    const recencyWindow = request.recencyWindow || { messages: 50 }
+
     // Use the connector's internal fetchHistoryRange method
+    // Limit fetch to recency window + buffer to avoid over-fetching
     logger.debug('Calling fetchHistoryRange')
-    const rawMessages = await (this.connector as any).fetchHistoryRange(
+    const maxFetch = recencyWindow.messages ? recencyWindow.messages + 50 : 1000
+    const rawMessages = await this.connector.fetchHistoryRange(
       channel,
       request.first,  // Pass the full URL
-      request.last    // Pass the full URL
+      request.last,   // Pass the full URL
+      maxFetch        // Pass limit
     )
     logger.debug({ rawMessageCount: rawMessages.length }, 'fetchHistoryRange complete')
 
     // Convert raw Discord messages to our format
     logger.debug('Converting messages to DiscordMessage format')
     const messageMap = new Map(rawMessages.map((m: any) => [m.id, m]))
-    let messages = rawMessages.map((msg: any) => (this.connector as any).convertMessage(msg, messageMap))
+    let messages = rawMessages.map((msg: any) => this.connector.convertMessage(msg, messageMap))
     logger.debug({ convertedCount: messages.length }, 'Message conversion complete')
 
     // Track original count before applying recency window
     const messagesBeforeTruncation = messages.length
 
-    // Apply recency window (default: 50 messages)
-    const recencyWindow = request.recencyWindow || { messages: 50 }
+    // Apply recency window
     messages = this.applyRecencyWindow(messages, recencyWindow)
     
     if (messages.length < messagesBeforeTruncation) {

@@ -280,7 +280,8 @@ export class DiscordConnector {
   async fetchHistoryRange(
     channel: TextChannel,
     firstUrl: string | undefined,
-    lastUrl: string
+    lastUrl: string,
+    maxMessages: number = 1000
   ): Promise<Message[]> {
     // Parse message IDs from URLs
     const lastMessageId = this.extractMessageIdFromUrl(lastUrl)
@@ -308,10 +309,18 @@ export class DiscordConnector {
     let currentBefore = lastMessageId
     let foundFirst = false
     
-    for (let batch = 0; batch < 10 && !foundFirst; batch++) {
+    const maxBatches = Math.ceil(maxMessages / 100)
+    
+    for (let batch = 0; batch < maxBatches && !foundFirst; batch++) {
+      // Stop if we've already fetched enough
+      if (allMessages.length >= maxMessages) {
+        break
+      }
+      
       try {
+        const batchSize = Math.min(100, maxMessages - allMessages.length)
         const fetched = await channel.messages.fetch({ 
-          limit: 100, 
+          limit: batchSize, 
           before: currentBefore 
         })
 
