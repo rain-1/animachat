@@ -169,33 +169,44 @@ export class ApiServer {
   }
 
   private async exportMessages(request: MessageExportRequest): Promise<MessageExportResponse> {
-    // Parse URLs to extract channel ID
+    // Parse URLs to extract IDs
     const channelId = this.extractChannelIdFromUrl(request.last)
     const guildId = this.extractGuildIdFromUrl(request.last)
+    const lastMessageId = this.extractMessageIdFromUrl(request.last)
     
-    if (!channelId || !guildId) {
+    if (!channelId || !guildId || !lastMessageId) {
       throw new Error('Invalid Discord message URL format')
     }
 
-    // Default recency window: 50 messages
-    const recencyWindow = request.recencyWindow || { messages: 50 }
+    // Fetch the specific range of messages using the connector's fetchHistoryRange
+    // This properly respects the first/last boundaries
+    const client = (this.connector as any).client
+    const channel = await client.channels.fetch(channelId)
     
-    // Calculate fetch depth (fetch a bit more for .history processing)
-    const depth = Math.min((recencyWindow.messages || 50) + 100, 1000)
+    if (!channel || !channel.isTextBased()) {
+      throw new Error(`Channel ${channelId} not found or not text-based`)
+    }
 
-    // Use connector's fetchContext which handles .history commands automatically
-    const context = await this.connector.fetchContext({
-      channelId,
-      depth,
-    })
+    // Use the connector's internal fetchHistoryRange method
+    const rawMessages = await (this.connector as any).fetchHistoryRange(
+      channel,
+      request.first,  // Pass the full URL
+      request.last    // Pass the full URL
+    )
 
-    let messages = context.messages
+    // Convert raw Discord messages to our format
+    const messageMap = new Map(rawMessages.map((m: any) => [m.id, m]))
+    let messages = rawMessages.map((msg: any) => (this.connector as any).convertMessage(msg, messageMap))
 
-    // Apply recency window
-    const beforeTruncate = messages.length
+    // Track original count before applying recency window
+    const messagesBeforeTruncation = messages.length
+
+    // Apply recency window (default: 50 messages)
+    const recencyWindow = request.recencyWindow || { messages: 50 }
     messages = this.applyRecencyWindow(messages, recencyWindow)
-    if (beforeTruncate > messages.length) {
-      logger.debug({ beforeTruncate, afterTruncate: messages.length }, 'Applied recency window')
+    
+    if (messages.length < messagesBeforeTruncation) {
+      logger.debug({ beforeTruncate: messagesBeforeTruncation, afterTruncate: messages.length }, 'Applied recency window')
     }
 
     // Transform to export format (from DiscordMessage to API format)
@@ -222,7 +233,7 @@ export class ApiServer {
     }))
 
     const wasExplicitlyTruncated = !!(request.recencyWindow 
-      && context.messages.length > messages.length)
+      && messagesBeforeTruncation > messages.length)
 
     return {
       messages: exportedMessages,
@@ -327,6 +338,11 @@ export class ApiServer {
 
   private extractGuildIdFromUrl(url: string): string | null {
     const match = url.match(/\/channels\/(\d+)\/\d+\/\d+/)
+    return match ? match[1]! : null
+  }
+
+  private extractMessageIdFromUrl(url: string): string | null {
+    const match = url.match(/\/channels\/\d+\/\d+\/(\d+)/)
     return match ? match[1]! : null
   }
 
