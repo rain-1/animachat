@@ -140,6 +140,7 @@ export interface BotConfig {
   mode: 'prefill' | 'chat'
   prefill_thinking?: boolean  // If true, prefill with <thinking> tag to enable reasoning
   debug_thinking?: boolean  // If true, send thinking content as dot-prefixed debug message
+  preserve_thinking_context?: boolean  // If true, preserve thinking traces in context (for Opus 4.5)
   continuation_model: string
   temperature: number
   max_tokens: number

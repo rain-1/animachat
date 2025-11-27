@@ -151,9 +151,12 @@ export class DiscordConnector {
       const messageMap = new Map(messages.map(m => [m.id, m]))
       const discordMessages: DiscordMessage[] = messages.map((msg) => this.convertMessage(msg, messageMap))
 
-      // Fetch pinned messages for config
-      const pinnedMessages = await channel.messages.fetchPinned()
-      const pinnedConfigs = this.extractConfigs(Array.from(pinnedMessages.values()))
+      // Fetch pinned messages for config (cache: false to always get fresh data)
+      const pinnedMessages = await channel.messages.fetchPinned(false)
+      // Sort by ID (oldest first) so newer pins override older ones in merge
+      const sortedPinned = Array.from(pinnedMessages.values()).sort((a, b) => a.id.localeCompare(b.id))
+      logger.debug({ pinnedCount: pinnedMessages.size, pinnedIds: sortedPinned.map(m => m.id) }, 'Fetched pinned messages (sorted oldest-first)')
+      const pinnedConfigs = this.extractConfigs(sortedPinned)
 
       // Download and cache images
       const images: CachedImage[] = []
@@ -480,7 +483,7 @@ export class DiscordConnector {
         const batchSize = Math.min(100, maxMessages - allMessages.length)
         const fetched = await channel.messages.fetch({ 
           limit: batchSize, 
-          before: currentBefore
+          before: currentBefore 
         })
 
         if (fetched.size === 0) break
@@ -889,7 +892,7 @@ export class DiscordConnector {
           if (target) {
             configs.push(`target: ${target}\n${yaml}`)
           } else {
-            configs.push(yaml)
+          configs.push(yaml)
           }
         }
       }

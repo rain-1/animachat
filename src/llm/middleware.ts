@@ -169,7 +169,7 @@ export class LLMMiddleware {
         if (request.config.prefill_thinking) {
           currentConversation.push(`${msg.participant}: <thinking>`)
         } else {
-          currentConversation.push(`${msg.participant}:`)
+        currentConversation.push(`${msg.participant}:`)
         }
       } else if (formatted.text) {
         // Regular message

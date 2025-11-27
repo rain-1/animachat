@@ -83,6 +83,14 @@ export class ConfigSystem {
     try {
       const config = YAML.parse(yamlString) || {}
       
+      logger.debug({ 
+        yamlString, 
+        parsedConfig: config, 
+        target: config.target, 
+        botName,
+        match: config.target === botName
+      }, 'Parsing channel config')
+      
       // If config has a target field, only apply if it matches this bot
       if (config.target && config.target !== botName) {
         logger.debug({ target: config.target, botName }, 'Skipping config with different target')
@@ -148,6 +156,7 @@ export class ConfigSystem {
       mode: config.mode || 'prefill',
       prefill_thinking: config.prefill_thinking || false,
       debug_thinking: config.debug_thinking || false,
+      preserve_thinking_context: config.preserve_thinking_context || false,
       continuation_model: config.continuation_model || '',
       temperature: config.temperature ?? 1.0,
       max_tokens: config.max_tokens || 4096,

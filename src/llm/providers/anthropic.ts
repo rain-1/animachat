@@ -64,7 +64,7 @@ export class AnthropicProvider implements LLMProvider {
       const responseRef = this.logResponseToFile(response)
 
       const durationMs = Date.now() - startTime
-      
+
       logger.debug({ 
         stopReason: response.stop_reason,
         contentBlocks: response.content.length,

@@ -21,6 +21,7 @@ import {
   traceRawDiscordMessages,
   RawDiscordMessage,
 } from '../trace/index.js'
+import { ActivationStore, Activation, TriggerType } from '../activation/index.js'
 
 export class AgentLoop {
   private running = false
@@ -28,6 +29,7 @@ export class AgentLoop {
   private botMessageIds = new Set<string>()  // Track bot's own message IDs
   private mcpInitialized = false
   private activeChannels = new Set<string>()  // Track channels currently being processed
+  private activationStore: ActivationStore
 
   constructor(
     private botId: string,
@@ -37,8 +39,11 @@ export class AgentLoop {
     private configSystem: ConfigSystem,
     private contextBuilder: ContextBuilder,
     private llmMiddleware: LLMMiddleware,
-    private toolSystem: ToolSystem
-  ) {}
+    private toolSystem: ToolSystem,
+    cacheDir: string = './cache'
+  ) {
+    this.activationStore = new ActivationStore(cacheDir)
+  }
 
   /**
    * Set bot's Discord user ID (called after Discord connects)
@@ -249,6 +254,19 @@ export class AgentLoop {
     }
     
     return result
+  }
+
+  /**
+   * Determine the trigger type based on context
+   * For now, we use 'mention' as default since most activations come from mentions
+   */
+  private determineTriggerType(triggeringMessageId?: string): TriggerType {
+    // TODO: Could be enhanced to detect reply vs mention vs random
+    // For now, use 'mention' as the default
+    if (!triggeringMessageId) {
+      return 'random'
+    }
+    return 'mention'
   }
 
   /**
@@ -530,6 +548,19 @@ export class AgentLoop {
         }
       }
 
+      // 4d. Load activations for preserve_thinking_context
+      let activationsForContext: Activation[] | undefined
+      if (config.preserve_thinking_context) {
+        activationsForContext = await this.activationStore.loadActivationsForChannel(
+          this.botId,
+          channelId,
+          existingMessageIds
+        )
+        logger.debug({ 
+          activationCount: activationsForContext.length 
+        }, 'Loaded activations for context')
+      }
+
       // 5. Build LLM context
       const buildParams: BuildContextParams = {
         discordContext,
@@ -537,6 +568,7 @@ export class AgentLoop {
         lastCacheMarker: state.lastCacheMarker,
         messagesSinceRoll: state.messagesSinceRoll,
         config,
+        activations: activationsForContext,
       }
 
       const contextResult = this.contextBuilder.buildContext(buildParams)
@@ -546,12 +578,27 @@ export class AgentLoop {
         contextResult.request.tools = this.toolSystem.getAvailableTools()
       }
 
+      // 5.5. Start activation recording if preserve_thinking_context is enabled
+      let activation: Activation | undefined
+      if (config.preserve_thinking_context) {
+        const triggerType: TriggerType = this.determineTriggerType(triggeringMessageId)
+        activation = this.activationStore.startActivation(
+          this.botId,
+          channelId,
+          {
+            type: triggerType,
+            anchorMessageId: triggeringMessageId || discordContext.messages[discordContext.messages.length - 1]?.id || '',
+          }
+        )
+      }
+
       // 6. Call LLM (with tool loop)
       const { completion, toolCallIds, preambleMessageIds } = await this.executeWithTools(
         contextResult.request, 
         config, 
         channelId,
-        triggeringMessageId || ''
+        triggeringMessageId || '',
+        activation?.id
       )
 
       // 7. Stop typing
@@ -624,6 +671,26 @@ export class AgentLoop {
         logger.warn('No text content to send in response')
       }
       
+      // Record final completion to activation
+      if (activation) {
+        // Get the full completion text (with thinking, before stripping)
+        const fullCompletionText = completion.content
+          .filter((c: any) => c.type === 'text')
+          .map((c: any) => c.text)
+          .join('\n')
+        
+        this.activationStore.addCompletion(
+          activation.id,
+          fullCompletionText,
+          sentMessageIds,
+          [],
+          []
+        )
+        
+        // Complete and persist the activation
+        await this.activationStore.completeActivation(activation.id)
+      }
+      
       // Update tool cache entries with bot message IDs (for existence checking on reload)
       // Include both preamble message IDs and final response message IDs
       const allBotMessageIds = [...preambleMessageIds, ...sentMessageIds]
@@ -681,7 +748,8 @@ export class AgentLoop {
     llmRequest: any,
     config: BotConfig,
     channelId: string,
-    triggeringMessageId: string
+    triggeringMessageId: string,
+    activationId?: string  // Optional activation ID for recording completions
   ): Promise<{ completion: any; toolCallIds: string[]; preambleMessageIds: string[] }> {
     let depth = 0
     let currentRequest = llmRequest
@@ -701,17 +769,18 @@ export class AgentLoop {
         }
       }
 
+      // Get full completion text for recording
+      const fullCompletionText = completion.content
+        .filter((c: any) => c.type === 'text')
+        .map((c: any) => c.text)
+        .join('\n')
+
       // Check for tool use (native tool_use blocks in chat mode)
       let toolUseBlocks = completion.content.filter((c) => c.type === 'tool_use')
 
       // In prefill mode, also parse tool calls from text (XML format)
       if (toolUseBlocks.length === 0 && config.mode === 'prefill') {
-        const textContent = completion.content
-          .filter((c: any) => c.type === 'text')
-          .map((c: any) => c.text)
-          .join('\n')
-        
-        const parsedResults = this.toolSystem.parseToolCalls(textContent, textContent)
+        const parsedResults = this.toolSystem.parseToolCalls(fullCompletionText, fullCompletionText)
         
         if (parsedResults.length > 0) {
           logger.debug({ parsedCount: parsedResults.length }, 'Parsed tool calls from prefill text')
@@ -727,7 +796,7 @@ export class AgentLoop {
       }
 
       if (toolUseBlocks.length === 0) {
-        // No tools, return completion
+        // No tools, return completion (final completion will be recorded by handleActivation)
         return { completion, toolCallIds: allToolCallIds, preambleMessageIds: allPreambleMessageIds }
       }
 
@@ -765,10 +834,23 @@ export class AgentLoop {
         
         // Strip tool call XML and thinking from text to get the "preamble"
         const preamble = this.stripToolCallsFromText(textContent, toolUseBlocks)
+        let preambleIds: string[] = []
         if (preamble.trim()) {
           logger.debug({ preambleLength: preamble.length }, 'Sending tool call preamble to Discord')
-          const preambleIds = await this.connector.sendMessage(channelId, preamble.trim(), triggeringMessageId)
+          preambleIds = await this.connector.sendMessage(channelId, preamble.trim(), triggeringMessageId)
           allPreambleMessageIds.push(...preambleIds)
+        }
+        
+        // Record this completion to activation (tool call completion)
+        // sentMessageIds = preamble messages (could be empty if no preamble/all thinking = phantom)
+        if (activationId && config.preserve_thinking_context) {
+          this.activationStore.addCompletion(
+            activationId,
+            fullCompletionText,
+            preambleIds,
+            [], // Tool calls tracked separately for now
+            []
+          )
         }
       }
 
@@ -789,7 +871,7 @@ export class AgentLoop {
         const result = await this.toolSystem.executeTool(toolCall)
         const toolDurationMs = Date.now() - toolStartTime
 
-        // Persist tool use
+        // Persist tool use (legacy - keep for backwards compatibility during migration)
         await this.toolSystem.persistToolUse(
           this.botId,
           channelId,

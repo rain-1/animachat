@@ -15,6 +15,7 @@ import {
   BotConfig,
   ModelConfig,
 } from '../types.js'
+import { Activation, Completion } from '../activation/index.js'
 import { logger } from '../utils/logger.js'
 import { 
   ContextBuildInfo, 
@@ -34,6 +35,7 @@ export interface BuildContextParams {
   lastCacheMarker: string | null
   messagesSinceRoll: number
   config: BotConfig
+  activations?: Activation[]  // For preserve_thinking_context
 }
 
 export interface ContextBuildResultWithTrace extends ContextBuildResult {
@@ -46,7 +48,7 @@ export class ContextBuilder {
    * Build LLM request from Discord context
    */
   buildContext(params: BuildContextParams): ContextBuildResultWithTrace {
-    const { discordContext, toolCacheWithResults, lastCacheMarker, messagesSinceRoll, config } = params
+    const { discordContext, toolCacheWithResults, lastCacheMarker, messagesSinceRoll, config, activations } = params
     const originalMessageCount = discordContext.messages.length
 
     let messages = discordContext.messages
@@ -111,6 +113,11 @@ export class ContextBuilder {
     // Replace participantMessages with interleaved version
     participantMessages.length = 0
     participantMessages.push(...interleavedMessages)
+
+    // 4.5. Inject activation completions if preserve_thinking_context is enabled
+    if (config.preserve_thinking_context && activations && activations.length > 0) {
+      this.injectActivationCompletions(participantMessages, activations, config.innerName)
+    }
 
     // 5. Apply limits on final assembled context (after images & tools added)
     const { messages: finalMessages, didTruncate, messagesRemoved } = this.applyLimits(
@@ -749,6 +756,80 @@ export class ContextBuilder {
     }
 
     return messages
+  }
+
+  /**
+   * Inject activation completions into participant messages
+   * - Replaces bot message content with full completion text (including thinking)
+   * - Inserts phantom completions after their anchor messages
+   */
+  private injectActivationCompletions(
+    messages: ParticipantMessage[],
+    activations: Activation[],
+    botName: string
+  ): void {
+    // Build a map of messageId -> completion
+    const completionMap = new Map<string, { activation: Activation; completion: Completion }>()
+    for (const activation of activations) {
+      for (const completion of activation.completions) {
+        for (const msgId of completion.sentMessageIds) {
+          completionMap.set(msgId, { activation, completion })
+        }
+      }
+    }
+    
+    // Build phantom insertions: messageId -> completions to insert after
+    const phantomInsertions = new Map<string, Completion[]>()
+    for (const activation of activations) {
+      let currentAnchor = activation.trigger.anchorMessageId
+      
+      for (const completion of activation.completions) {
+        if (completion.sentMessageIds.length === 0) {
+          // Phantom - insert after current anchor
+          const existing = phantomInsertions.get(currentAnchor) || []
+          existing.push(completion)
+          phantomInsertions.set(currentAnchor, existing)
+        } else {
+          // Update anchor to last sent message
+          currentAnchor = completion.sentMessageIds[completion.sentMessageIds.length - 1] || currentAnchor
+        }
+      }
+    }
+    
+    // Process messages: replace content and insert phantoms
+    // Process in reverse to avoid index shifting issues
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i]!
+      
+      // Check if this message has a full completion to inject
+      if (msg.messageId && msg.participant === botName && completionMap.has(msg.messageId)) {
+        const { completion } = completionMap.get(msg.messageId)!
+        // Replace content with full completion text
+        msg.content = [{ type: 'text', text: completion.text }]
+        logger.debug({ 
+          messageId: msg.messageId, 
+          originalLength: msg.content[0]?.type === 'text' ? (msg.content[0] as any).text?.length : 0,
+          newLength: completion.text.length 
+        }, 'Injected full completion into bot message')
+      }
+      
+      // Check if phantoms should be inserted after this message
+      if (msg.messageId && phantomInsertions.has(msg.messageId)) {
+        const phantoms = phantomInsertions.get(msg.messageId)!
+        // Insert phantom messages after this one
+        const phantomMessages: ParticipantMessage[] = phantoms.map(p => ({
+          participant: botName,
+          content: [{ type: 'text', text: p.text }],
+          // No messageId - this is a phantom
+        }))
+        // Insert after current message
+        messages.splice(i + 1, 0, ...phantomMessages)
+        logger.debug({ 
+          afterMessageId: msg.messageId, 
+          phantomCount: phantomMessages.length 
+        }, 'Inserted phantom completions')
+      }
+    }
   }
 
   private buildStopSequences(
