@@ -58,7 +58,8 @@ export class PluginContextFactory {
       parentChannelId?: string
       historyOriginChannelId?: string
     },
-    epicReducer?: (state: any, delta: any) => any
+    epicReducer?: (state: any, delta: any) => any,
+    pluginConfig?: { state_scope?: 'global' | 'channel' | 'epic'; [key: string]: any }
   ): PluginStateContext {
     const stateManager = this.getStateManager(pluginId)
     const { channelId, currentMessageId } = baseContext
@@ -67,6 +68,9 @@ export class PluginContextFactory {
     const messageIdSet = this.messageIdSet
     const messagePositions = this.messagePositions
     const messageIds = this.messageIds
+    
+    // Determine configured scope (default to 'channel')
+    const configuredScope = pluginConfig?.state_scope || 'channel'
     
     const messagesSinceId = (messageId: string | null): number => {
       if (!messageId) return Infinity
@@ -82,6 +86,8 @@ export class PluginContextFactory {
       ...baseContext,
       contextMessageIds: messageIdSet,
       inheritanceInfo,
+      pluginConfig,
+      configuredScope,
       
       messagesSinceId,
       

@@ -101,6 +101,21 @@ export interface PluginStateContext extends PluginContext {
     parentChannelId?: string      // For threads
     historyOriginChannelId?: string  // For .history jumps
   }
+  
+  /**
+   * Plugin-specific configuration from bot config.
+   * Includes state_scope and any custom plugin settings.
+   */
+  pluginConfig?: {
+    state_scope?: StateScope
+    [key: string]: any
+  }
+  
+  /**
+   * Configured state scope for this plugin (convenience accessor).
+   * Defaults to 'channel' if not configured.
+   */
+  configuredScope: StateScope
 }
 
 /**

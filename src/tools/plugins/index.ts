@@ -7,11 +7,13 @@
 import { ToolPlugin } from './types.js'
 import configPlugin from './config.js'
 import notesPlugin from './notes.js'
+import injectPlugin from './inject.js'
 
 // Register all available plugins
 export const availablePlugins: Record<string, ToolPlugin> = {
   'config': configPlugin,
   'notes': notesPlugin,
+  'inject': injectPlugin,
 }
 
 export * from './types.js'

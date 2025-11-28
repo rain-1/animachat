@@ -921,10 +921,16 @@ export class ContextBuilder {
     }
     
     // Calculate current depth for each injection
+    // Positive targetDepth = from end (latest), negative = from start (earliest)
     const injectionsWithDepth = injections.map(injection => {
       let currentDepth: number
+      const isFromEarliest = injection.targetDepth < 0
       
-      if (!injection.lastModifiedAt) {
+      if (isFromEarliest) {
+        // Negative depth means "from start" - no aging, always at fixed position
+        // -1 = position 0, -6 = position 5, etc.
+        currentDepth = injection.targetDepth  // Keep negative for sorting
+      } else if (!injection.lastModifiedAt) {
         // No modification tracking - settled at target
         currentDepth = injection.targetDepth
       } else {
@@ -940,20 +946,33 @@ export class ContextBuilder {
         }
       }
       
-      return { injection, currentDepth }
+      return { injection, currentDepth, isFromEarliest }
     })
     
-    // Sort by depth (deepest first, so we insert from back to front)
+    // Separate "from earliest" (negative) and "from latest" (positive) injections
+    const fromEarliest = injectionsWithDepth.filter(i => i.isFromEarliest)
+    const fromLatest = injectionsWithDepth.filter(i => !i.isFromEarliest)
+    
+    // Sort "from earliest" by position (most negative = closest to start)
     // Then by priority (higher first)
-    injectionsWithDepth.sort((a, b) => {
+    fromEarliest.sort((a, b) => {
+      if (a.currentDepth !== b.currentDepth) {
+        return a.currentDepth - b.currentDepth  // More negative first (closer to start)
+      }
+      return (b.injection.priority || 0) - (a.injection.priority || 0)
+    })
+    
+    // Sort "from latest" by depth (deepest first, so we insert from back to front)
+    // Then by priority (higher first)
+    fromLatest.sort((a, b) => {
       if (a.currentDepth !== b.currentDepth) {
         return b.currentDepth - a.currentDepth  // Deeper first
       }
       return (b.injection.priority || 0) - (a.injection.priority || 0)
     })
     
-    // Insert each injection at its calculated position
-    for (const { injection, currentDepth } of injectionsWithDepth) {
+    // Insert "from latest" first (they reference end of array which won't shift)
+    for (const { injection, currentDepth } of fromLatest) {
       // Convert depth to insertion index (from the END of the array)
       // Depth 0 = after last message = messages.length
       // Depth 1 = before last message = messages.length - 1
@@ -978,6 +997,41 @@ export class ContextBuilder {
         targetDepth: injection.targetDepth,
         currentDepth,
         insertIndex,
+        anchor: 'latest',
+        totalMessages: messages.length,
+      }, 'Inserted plugin context injection')
+    }
+    
+    // Insert "from earliest" (they reference start of array, insert in reverse order)
+    // Process in reverse so earlier positions are inserted last (preserving indices)
+    for (let i = fromEarliest.length - 1; i >= 0; i--) {
+      const { injection, currentDepth } = fromEarliest[i]!
+      
+      // Convert negative depth to insertion index (from the START of the array)
+      // -1 = position 0 (very start)
+      // -6 = position 5 (after first 5 messages)
+      const insertIndex = Math.min(messages.length, Math.abs(currentDepth) - 1)
+      
+      // Convert content to ContentBlock[]
+      const content: ContentBlock[] = typeof injection.content === 'string'
+        ? [{ type: 'text', text: injection.content }]
+        : injection.content
+      
+      // Create the injection message
+      const injectionMessage: ParticipantMessage = {
+        participant: injection.asSystem ? 'System' : 'System>[plugin]',
+        content,
+        // No messageId - synthetic injection
+      }
+      
+      messages.splice(insertIndex, 0, injectionMessage)
+      
+      logger.debug({
+        injectionId: injection.id,
+        targetDepth: injection.targetDepth,
+        currentDepth,
+        insertIndex,
+        anchor: 'earliest',
         totalMessages: messages.length,
       }, 'Inserted plugin context injection')
     }

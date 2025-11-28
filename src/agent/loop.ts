@@ -645,10 +645,15 @@ export class AgentLoop {
         for (const [pluginName, plugin] of loadedPlugins) {
           if (plugin.getContextInjections) {
             try {
+              // Get plugin-specific config
+              const pluginInstanceConfig = config.plugin_config?.[pluginName]
+              
               const stateContext = pluginContextFactory.createStateContext(
                 pluginName,
                 basePluginContext,
-                discordContext.inheritanceInfo  // Pass inheritance info for state lookup
+                discordContext.inheritanceInfo,  // Pass inheritance info for state lookup
+                undefined,  // epicReducer
+                pluginInstanceConfig  // Pass plugin config
               )
               const injections = await plugin.getContextInjections(stateContext)
               pluginInjections.push(...injections)
@@ -667,7 +672,7 @@ export class AgentLoop {
         }
         
         // Set plugin context factory for tool execution hooks (each plugin gets its own context)
-        this.toolSystem.setPluginContextFactory(pluginContextFactory)
+        this.toolSystem.setPluginContextFactory(pluginContextFactory, config.plugin_config)
       }
 
       // 5. Build LLM context

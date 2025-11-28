@@ -165,6 +165,7 @@ export interface BotConfig {
   max_tool_depth: number
   mcp_servers?: MCPServerConfig[]
   tool_plugins?: string[]  // Plugin names to enable (e.g., ['config'])
+  plugin_config?: Record<string, PluginInstanceConfig>  // Per-plugin configuration
   
   // Stop sequences
   stop_sequences: string[]
@@ -201,6 +202,13 @@ export interface MCPServerConfig {
   command: string
   args?: string[]
   env?: Record<string, string>
+}
+
+export interface PluginInstanceConfig {
+  /** State scope: 'global', 'channel', or 'epic' */
+  state_scope?: 'global' | 'channel' | 'epic'
+  /** Any other plugin-specific settings */
+  [key: string]: any
 }
 
 export interface ToolDefinition {

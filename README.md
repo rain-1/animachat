@@ -79,19 +79,39 @@ toolsEnabled: true
 toolOutputVisible: false
 ```
 
-### 4. Configure Vendor (Anthropic Example)
+### 4. Configure Vendor
 
 Create `config/shared.yaml`:
 
+**Anthropic:**
 ```yaml
 vendors:
   anthropic:
     config:
       anthropic_api_key: "sk-ant-..."
     provides:
-      - "claude-3-5-sonnet-20241022"
-      - "claude-3-opus-20240229"
+      - "claude-3-5-sonnet-*"
+      - "claude-3-opus-*"
+      - "claude-sonnet-4-*"
 ```
+
+**OpenAI (or compatible API):**
+```yaml
+vendors:
+  openai:
+    config:
+      openai_api_key: "sk-..."
+      openai_base_url: "https://api.openai.com/v1"  # Optional, for compatible APIs
+    provides:
+      - "gpt-4o*"
+      - "gpt-4-turbo*"
+      - "gpt-3.5-turbo*"
+```
+
+**Notes on OpenAI provider:**
+- Only supports `mode: chat` (not prefill - OpenAI doesn't allow partial assistant messages)
+- Images not yet supported (different format from Anthropic)
+- For prefill support with OpenAI-compatible APIs, additional providers needed (OpenRouter, completions API)
 
 ### 5. Run
 
@@ -110,6 +130,7 @@ npm start
 - [Requirements](./requirements.md) - Full functional requirements  
 - [Implementation Status](./IMPLEMENTATION_STATUS.md) - Current development status
 - [Outstanding Items](./OUTSTANDING_ITEMS.md) - Prioritized list of remaining tasks
+- [Plugins](./docs/plugins.md) - Plugin system documentation
 
 ### Key Components
 

@@ -92,7 +92,9 @@ const plugin: ToolPlugin = {
    * Get context injections - returns notes to be injected into context
    */
   getContextInjections: async (context: PluginStateContext): Promise<ContextInjection[]> => {
-    const state = await context.getState<NotesState>('channel')
+    // Use configured scope (defaults to 'channel')
+    const scope = context.configuredScope
+    const state = await context.getState<NotesState>(scope)
     
     if (!state?.notes.length) {
       return []
@@ -125,7 +127,9 @@ const plugin: ToolPlugin = {
     _result: any,
     context: PluginStateContext
   ): Promise<void> => {
-    const state = await context.getState<NotesState>('channel') || {
+    // Use configured scope (defaults to 'channel')
+    const scope = context.configuredScope
+    const state = await context.getState<NotesState>(scope) || {
       notes: [],
       lastModifiedMessageId: null,
     }
@@ -141,10 +145,11 @@ const plugin: ToolPlugin = {
       state.notes.push(newNote)
       state.lastModifiedMessageId = context.currentMessageId
       
-      await context.setState('channel', state)
+      await context.setState(scope, state)
       logger.info({ 
         noteId: newNote.id, 
-        channelId: context.channelId 
+        channelId: context.channelId,
+        scope 
       }, 'Note saved')
     }
     
@@ -154,10 +159,11 @@ const plugin: ToolPlugin = {
         state.notes.splice(noteIndex, 1)
         state.lastModifiedMessageId = context.currentMessageId
         
-        await context.setState('channel', state)
+        await context.setState(scope, state)
         logger.info({ 
           noteId: input.id, 
-          channelId: context.channelId 
+          channelId: context.channelId,
+          scope 
         }, 'Note deleted')
       }
     }

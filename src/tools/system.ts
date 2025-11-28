@@ -19,6 +19,7 @@ export class ToolSystem {
   private loadedPluginObjects = new Map<string, ToolPlugin>()
   private pluginContext: Partial<PluginContext> = {}
   private pluginContextFactory: any = null  // PluginContextFactory, typed as any to avoid circular import
+  private pluginConfigs: Record<string, any> = {}  // Per-plugin configs
 
   constructor(private toolCacheDir: string) {}
 
@@ -75,8 +76,9 @@ export class ToolSystem {
   /**
    * Set plugin context factory for creating plugin-specific state contexts
    */
-  setPluginContextFactory(factory: any): void {
+  setPluginContextFactory(factory: any, pluginConfigs?: Record<string, any>): void {
     this.pluginContextFactory = factory
+    this.pluginConfigs = pluginConfigs || {}
   }
 
   /**
@@ -353,10 +355,16 @@ export class ToolSystem {
           const plugin = this.loadedPluginObjects.get(pluginName)
           if (plugin?.onToolExecution && this.pluginContextFactory) {
             try {
+              // Get plugin-specific config
+              const pluginConfig = this.pluginConfigs[pluginName]
+              
               // Create a plugin-specific state context (so state is stored under the correct plugin name)
               const pluginStateContext = this.pluginContextFactory.createStateContext(
                 pluginName,  // Use actual plugin name, not 'system'
-                context
+                context,
+                undefined,  // inheritanceInfo
+                undefined,  // epicReducer
+                pluginConfig  // Pass plugin config
               )
               await plugin.onToolExecution(call.name, call.input, result, pluginStateContext)
               logger.debug({ pluginName, toolName: call.name }, 'Called onToolExecution hook')
