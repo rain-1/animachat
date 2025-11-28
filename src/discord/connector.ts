@@ -97,6 +97,9 @@ export class DiscordConnector {
         throw new DiscordError(`Channel ${channelId} not found or not text-based`)
       }
 
+      // Reset history origin tracker for this fetch
+      this.lastHistoryOriginChannelId = null
+
       // Use recursive fetch with automatic .history processing
       // Note: Don't pass firstMessageId to recursive call - each .history has its own boundaries
       // We'll trim to firstMessageId after all recursion completes
@@ -220,11 +223,22 @@ export class DiscordConnector {
       
       logger.debug({ totalImages: images.length }, 'Image caching complete')
 
+      // Build inheritance info for plugin state
+      const inheritanceInfo: DiscordContext['inheritanceInfo'] = {}
+      if (channel.isThread()) {
+        const thread = channel as any
+        inheritanceInfo.parentChannelId = thread.parentId
+      }
+      if (this.lastHistoryOriginChannelId) {
+        inheritanceInfo.historyOriginChannelId = this.lastHistoryOriginChannelId
+      }
+
       return {
         messages: discordMessages,
         pinnedConfigs,
         images,
         guildId: channel.guildId,
+        inheritanceInfo: Object.keys(inheritanceInfo).length > 0 ? inheritanceInfo : undefined,
       }
     }, this.options.maxBackoffMs)
   }
@@ -256,6 +270,11 @@ export class DiscordConnector {
 
     return { first, last }
   }
+
+  /**
+   * Track history origin during recursive fetch (reset per fetchContext call)
+   */
+  private lastHistoryOriginChannelId: string | null = null
 
   /**
    * Recursively fetch messages with .history support
@@ -385,12 +404,17 @@ export class DiscordConnector {
                 const histLastId = this.extractMessageIdFromUrl(historyRange.last) || undefined
                 const histFirstId = historyRange.first ? (this.extractMessageIdFromUrl(historyRange.first) || undefined) : undefined
 
+                // Track that we jumped from this channel via .history
+                // This is used for plugin state inheritance
+                this.lastHistoryOriginChannelId = channel.id
+
                 logger.debug({ 
                   historyTarget: historyRange.last,
                   targetChannelId,
                   histLastId,
                   histFirstId,
-                  remaining: maxMessages - results.length
+                  remaining: maxMessages - results.length,
+                  historyOriginChannelId: channel.id,
                 }, 'Recursively fetching .history target')
 
                 // RECURSIVE CALL - fetch from .history's boundaries

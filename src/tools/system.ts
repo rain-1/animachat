@@ -9,14 +9,16 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { ToolDefinition, ToolCall, ToolResult, ToolError, MCPServerConfig } from '../types.js'
 import { logger } from '../utils/logger.js'
-import { availablePlugins, PluginTool, PluginContext } from './plugins/index.js'
+import { availablePlugins, PluginTool, PluginContext, ToolPlugin, PluginStateContext } from './plugins/index.js'
 
 export class ToolSystem {
   private mcpClients = new Map<string, Client>()
   private tools: ToolDefinition[] = []
   private pluginHandlers = new Map<string, PluginTool['handler']>()
   private loadedPlugins: string[] = []
+  private loadedPluginObjects = new Map<string, ToolPlugin>()
   private pluginContext: Partial<PluginContext> = {}
+  private pluginContextFactory: any = null  // PluginContextFactory, typed as any to avoid circular import
 
   constructor(private toolCacheDir: string) {}
 
@@ -47,11 +49,20 @@ export class ToolSystem {
       }
       
       this.loadedPlugins.push(name)
+      this.loadedPluginObjects.set(name, plugin)
       logger.info({ 
         plugin: name, 
-        tools: plugin.tools.map(t => t.name) 
+        tools: plugin.tools.map(t => t.name),
+        hasContextInjection: !!plugin.getContextInjections,
       }, 'Loaded plugin')
     }
+  }
+  
+  /**
+   * Get loaded plugin objects (for context injection)
+   */
+  getLoadedPluginObjects(): Map<string, ToolPlugin> {
+    return this.loadedPluginObjects
   }
 
   /**
@@ -59,6 +70,13 @@ export class ToolSystem {
    */
   setPluginContext(context: Partial<PluginContext>): void {
     this.pluginContext = { ...this.pluginContext, ...context }
+  }
+  
+  /**
+   * Set plugin context factory for creating plugin-specific state contexts
+   */
+  setPluginContextFactory(factory: any): void {
+    this.pluginContextFactory = factory
   }
 
   /**
@@ -319,12 +337,34 @@ export class ToolSystem {
         const context: PluginContext = {
           botId: this.pluginContext.botId || '',
           channelId: this.pluginContext.channelId || '',
+          guildId: this.pluginContext.guildId || '',
+          currentMessageId: this.pluginContext.currentMessageId || '',
           config: this.pluginContext.config || {},
           sendMessage: this.pluginContext.sendMessage || (async () => []),
           pinMessage: this.pluginContext.pinMessage || (async () => {}),
         }
         
         const result = await pluginHandler(call.input, context)
+        
+        // Call onToolExecution lifecycle hook for all plugins that own this tool
+        const toolDef = this.tools.find(t => t.name === call.name)
+        if (toolDef?.serverName?.startsWith('plugin:')) {
+          const pluginName = toolDef.serverName.replace('plugin:', '')
+          const plugin = this.loadedPluginObjects.get(pluginName)
+          if (plugin?.onToolExecution && this.pluginContextFactory) {
+            try {
+              // Create a plugin-specific state context (so state is stored under the correct plugin name)
+              const pluginStateContext = this.pluginContextFactory.createStateContext(
+                pluginName,  // Use actual plugin name, not 'system'
+                context
+              )
+              await plugin.onToolExecution(call.name, call.input, result, pluginStateContext)
+              logger.debug({ pluginName, toolName: call.name }, 'Called onToolExecution hook')
+            } catch (hookError) {
+              logger.error({ hookError, pluginName, toolName: call.name }, 'onToolExecution hook failed')
+            }
+          }
+        }
         
         return {
           callId: call.id,

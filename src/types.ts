@@ -291,6 +291,13 @@ export interface DiscordContext {
   pinnedConfigs: string[]  // Raw YAML strings from pinned messages
   images: CachedImage[]
   guildId: string
+  /** Inheritance info for plugin state */
+  inheritanceInfo?: {
+    /** Parent channel ID if this is a thread */
+    parentChannelId?: string
+    /** Origin channel ID if .history was used to jump here */
+    historyOriginChannelId?: string
+  }
 }
 
 export interface CachedImage {

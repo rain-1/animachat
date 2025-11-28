@@ -402,6 +402,7 @@ export class LLMMiddleware {
     return `<tools>
 ${formatted.join('\n')}
 
+Don't announce the tool calls. Others will not see the calls, as they will be redacted from Discord messages.
 To escape a tool call (show without executing), wrap in backticks: \`<tool>{}\`
 </tools>`
   }

@@ -22,6 +22,7 @@ import {
   RawDiscordMessage,
 } from '../trace/index.js'
 import { ActivationStore, Activation, TriggerType } from '../activation/index.js'
+import { PluginContextFactory, ContextInjection } from '../tools/plugins/index.js'
 
 export class AgentLoop {
   private running = false
@@ -30,6 +31,7 @@ export class AgentLoop {
   private mcpInitialized = false
   private activeChannels = new Set<string>()  // Track channels currently being processed
   private activationStore: ActivationStore
+  private cacheDir: string
 
   constructor(
     private botId: string,
@@ -43,6 +45,7 @@ export class AgentLoop {
     cacheDir: string = './cache'
   ) {
     this.activationStore = new ActivationStore(cacheDir)
+    this.cacheDir = cacheDir
   }
 
   /**
@@ -161,7 +164,7 @@ export class AgentLoop {
     const activationPromise = triggeringMessageId
       ? withActivationLogging(channelId, triggeringMessageId, async () => {
           // Run with trace context
-          const { trace } = await withTrace(
+          const { trace, error: traceError } = await withTrace(
             channelId,
             triggeringMessageId,
             this.botId,
@@ -180,13 +183,22 @@ export class AgentLoop {
             }
           )
           
-          // Write trace to disk
+          // Write trace to disk (even if activation failed - we want to see what happened)
           try {
             const writer = getTraceWriter()
             writer.writeTrace(trace)
-            logger.info({ traceId: trace.traceId, channelId }, 'Trace saved')
-          } catch (error) {
-            logger.error({ error }, 'Failed to write trace')
+            logger.info({ 
+              traceId: trace.traceId, 
+              channelId, 
+              hadError: !!traceError 
+            }, traceError ? 'Trace saved (with error)' : 'Trace saved')
+          } catch (writeError) {
+            logger.error({ writeError }, 'Failed to write trace')
+          }
+          
+          // Re-throw the original error if there was one
+          if (traceError) {
+            throw traceError
           }
         })
       : this.handleActivation(channelId, guildId, triggeringMessageId)
@@ -522,6 +534,8 @@ export class AgentLoop {
       this.toolSystem.setPluginContext({
         botId: this.botId,
         channelId,
+        guildId,
+        currentMessageId: triggeringMessageId || '',
         config,
         sendMessage: async (content: string) => {
           return await this.connector.sendMessage(channelId, content)
@@ -562,25 +576,30 @@ export class AgentLoop {
       const toolCacheForContext = filteredToolCache
       
       // 4c. Filter out Discord messages that are in tool cache's botMessageIds
-      // (the tool cache has the full completion with tool call - avoids duplication)
-      const toolCacheBotMessageIds = new Set<string>()
-      for (const entry of toolCacheForContext) {
-        if (entry.call.botMessageIds) {
-          entry.call.botMessageIds.forEach(id => toolCacheBotMessageIds.add(id))
+      // ONLY when preserve_thinking_context is DISABLED
+      // When enabled, the activation store handles full completions and needs the original messages
+      if (!config.preserve_thinking_context) {
+        const toolCacheBotMessageIds = new Set<string>()
+        for (const entry of toolCacheForContext) {
+          if (entry.call.botMessageIds) {
+            entry.call.botMessageIds.forEach(id => toolCacheBotMessageIds.add(id))
+          }
         }
-      }
-      
-      if (toolCacheBotMessageIds.size > 0) {
-        const beforeFilter = discordContext.messages.length
-        discordContext.messages = discordContext.messages.filter(msg => 
-          !toolCacheBotMessageIds.has(msg.id)
-        )
-        if (discordContext.messages.length < beforeFilter) {
-          logger.debug({ 
-            filtered: beforeFilter - discordContext.messages.length,
-            remaining: discordContext.messages.length
-          }, 'Filtered Discord messages covered by tool cache')
+        
+        if (toolCacheBotMessageIds.size > 0) {
+          const beforeFilter = discordContext.messages.length
+          discordContext.messages = discordContext.messages.filter(msg => 
+            !toolCacheBotMessageIds.has(msg.id)
+          )
+          if (discordContext.messages.length < beforeFilter) {
+            logger.debug({ 
+              filtered: beforeFilter - discordContext.messages.length,
+              remaining: discordContext.messages.length
+            }, 'Filtered Discord messages covered by tool cache')
+          }
         }
+      } else {
+        logger.debug('Skipping tool cache message filter (preserve_thinking_context enabled)')
       }
 
       // 4d. Load activations for preserve_thinking_context
@@ -596,6 +615,61 @@ export class AgentLoop {
         }, 'Loaded activations for context')
       }
 
+      // 4e. Gather plugin context injections
+      let pluginInjections: ContextInjection[] = []
+      const loadedPlugins = this.toolSystem.getLoadedPluginObjects()
+      if (loadedPlugins.size > 0) {
+        // Create plugin context factory with message IDs
+        const messageIds = discordContext.messages.map(m => m.id)
+        const pluginContextFactory = new PluginContextFactory({
+          cacheDir: this.cacheDir,
+          messageIds,
+        })
+        
+        // Create base context for plugins
+        const basePluginContext = {
+          botId: this.botId,
+          channelId,
+          guildId,
+          currentMessageId: triggeringMessageId || '',
+          config,
+          sendMessage: async (content: string) => {
+            return await this.connector.sendMessage(channelId, content)
+          },
+          pinMessage: async (messageId: string) => {
+            await this.connector.pinMessage(channelId, messageId)
+          },
+        }
+        
+        // Get injections from all plugins that support it
+        for (const [pluginName, plugin] of loadedPlugins) {
+          if (plugin.getContextInjections) {
+            try {
+              const stateContext = pluginContextFactory.createStateContext(
+                pluginName,
+                basePluginContext,
+                discordContext.inheritanceInfo  // Pass inheritance info for state lookup
+              )
+              const injections = await plugin.getContextInjections(stateContext)
+              pluginInjections.push(...injections)
+              
+              if (injections.length > 0) {
+                logger.debug({ 
+                  pluginName, 
+                  injectionCount: injections.length,
+                  injectionIds: injections.map(i => i.id),
+                }, 'Got context injections from plugin')
+              }
+            } catch (error) {
+              logger.error({ error, pluginName }, 'Failed to get context injections from plugin')
+            }
+          }
+        }
+        
+        // Set plugin context factory for tool execution hooks (each plugin gets its own context)
+        this.toolSystem.setPluginContextFactory(pluginContextFactory)
+      }
+
       // 5. Build LLM context
       const buildParams: BuildContextParams = {
         discordContext,
@@ -604,6 +678,7 @@ export class AgentLoop {
         messagesSinceRoll: state.messagesSinceRoll,
         config,
         activations: activationsForContext,
+        pluginInjections,
       }
 
       const contextResult = this.contextBuilder.buildContext(buildParams)

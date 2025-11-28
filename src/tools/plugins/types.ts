@@ -2,10 +2,36 @@
  * Tool Plugin Types
  */
 
+import { ContentBlock } from '../../types.js'
+import { StateScope } from './state.js'
+
 export interface ToolPlugin {
   name: string
   description: string
   tools: PluginTool[]
+  
+  /**
+   * Return context injections to be inserted into the LLM context.
+   * Called during context building.
+   */
+  getContextInjections?: (context: PluginStateContext) => Promise<ContextInjection[]>
+  
+  /**
+   * Called after a tool from this plugin is executed.
+   * Useful for updating injection depth after modifications.
+   */
+  onToolExecution?: (
+    toolName: string,
+    input: any,
+    result: any,
+    context: PluginStateContext
+  ) => Promise<void>
+  
+  /**
+   * Called when plugin is initialized for a channel.
+   * Use to set up initial state or inherit from parent.
+   */
+  onInit?: (context: PluginStateContext) => Promise<void>
 }
 
 export interface PluginTool {
@@ -19,11 +45,98 @@ export interface PluginTool {
   handler: (input: any, context: PluginContext) => Promise<any>
 }
 
+/**
+ * Basic plugin context for tool execution
+ */
 export interface PluginContext {
   botId: string
   channelId: string
+  guildId: string
+  currentMessageId: string  // The triggering message
   config: any  // Current bot config
   sendMessage: (content: string) => Promise<string[]>  // Send a message, returns message IDs
   pinMessage: (messageId: string) => Promise<void>  // Pin a message
+}
+
+/**
+ * Extended context with state management for context injections
+ */
+export interface PluginStateContext extends PluginContext {
+  /**
+   * Get state for the given scope.
+   * - global: Shared across all channels
+   * - channel: Per-channel, inherits through .history and threads
+   * - epic: Event-sourced, supports fork/rollback
+   */
+  getState<T>(scope: StateScope): Promise<T | null>
+  
+  /**
+   * Set state for the given scope.
+   * For 'epic' scope, this records an event tied to currentMessageId.
+   */
+  setState<T>(scope: StateScope, state: T): Promise<void>
+  
+  /**
+   * Get state as it was at a specific message (epic scope only).
+   * Useful for debugging or viewing historical state.
+   */
+  getStateAtMessage<T>(messageId: string): Promise<T | null>
+  
+  /**
+   * Get the set of message IDs currently in context.
+   * Used for epic scope rollback (events for deleted messages are skipped).
+   */
+  contextMessageIds: Set<string>
+  
+  /**
+   * Calculate how many messages have passed since a given message ID.
+   * Returns Infinity if messageId is not in context.
+   */
+  messagesSinceId(messageId: string | null): number
+  
+  /**
+   * Inheritance info for channel state
+   */
+  inheritanceInfo?: {
+    parentChannelId?: string      // For threads
+    historyOriginChannelId?: string  // For .history jumps
+  }
+}
+
+/**
+ * A context injection from a plugin.
+ * Injected into LLM context at a calculated depth.
+ */
+export interface ContextInjection {
+  /** Unique ID for this injection (used for deduplication) */
+  id: string
+  
+  /** Content to inject - can be text or content blocks */
+  content: string | ContentBlock[]
+  
+  /** 
+   * Target depth from newest message (0 = most recent).
+   * The injection ages toward this depth over time.
+   */
+  targetDepth: number
+  
+  /**
+   * Message ID when content was last modified.
+   * Used to calculate current depth (starts at 0, ages toward targetDepth).
+   * If null, injection is at targetDepth.
+   */
+  lastModifiedAt?: string | null
+  
+  /**
+   * Priority for ordering when multiple injections are at the same depth.
+   * Higher priority = appears first. Default: 0
+   */
+  priority?: number
+  
+  /**
+   * If true, this injection is inserted as a system message.
+   * Otherwise inserted as a participant message.
+   */
+  asSystem?: boolean
 }
 

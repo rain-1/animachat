@@ -249,7 +249,7 @@ export interface LLMCallInfo {
   
   /** Response summary */
   response: {
-    stopReason: 'end_turn' | 'max_tokens' | 'stop_sequence' | 'tool_use'
+    stopReason: 'end_turn' | 'max_tokens' | 'stop_sequence' | 'tool_use' | 'refusal'
     contentBlocks: number
     textLength: number
     toolUseCount: number

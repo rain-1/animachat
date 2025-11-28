@@ -28,6 +28,7 @@ import {
   estimateSystemTokens,
   extractTextContent,
 } from '../trace/tokens.js'
+import { ContextInjection } from '../tools/plugins/types.js'
 
 export interface BuildContextParams {
   discordContext: DiscordContext
@@ -36,6 +37,7 @@ export interface BuildContextParams {
   messagesSinceRoll: number
   config: BotConfig
   activations?: Activation[]  // For preserve_thinking_context
+  pluginInjections?: ContextInjection[]  // Plugin context injections
 }
 
 export interface ContextBuildResultWithTrace extends ContextBuildResult {
@@ -48,7 +50,7 @@ export class ContextBuilder {
    * Build LLM request from Discord context
    */
   buildContext(params: BuildContextParams): ContextBuildResultWithTrace {
-    const { discordContext, toolCacheWithResults, lastCacheMarker, messagesSinceRoll, config, activations } = params
+    const { discordContext, toolCacheWithResults, lastCacheMarker, messagesSinceRoll, config, activations, pluginInjections } = params
     const originalMessageCount = discordContext.messages.length
 
     let messages = discordContext.messages
@@ -56,15 +58,17 @@ export class ContextBuilder {
     // Track which messages were merged (for tracing)
     const mergedMessageIds = new Set<string>()
 
-    // 1. Merge consecutive bot messages
-    const beforeMerge = messages.length
-    messages = this.mergeConsecutiveBotMessages(messages, config.innerName)
-    if (messages.length < beforeMerge) {
-      // Some messages were merged - track them
-      const afterIds = new Set(messages.map(m => m.id))
-      discordContext.messages.forEach(m => {
-        if (!afterIds.has(m.id)) mergedMessageIds.add(m.id)
-      })
+    // 1. Merge consecutive bot messages (skip when preserve_thinking_context to keep IDs for injection)
+    if (!config.preserve_thinking_context) {
+      const beforeMerge = messages.length
+      messages = this.mergeConsecutiveBotMessages(messages, config.innerName)
+      if (messages.length < beforeMerge) {
+        // Some messages were merged - track them
+        const afterIds = new Set(messages.map(m => m.id))
+        discordContext.messages.forEach(m => {
+          if (!afterIds.has(m.id)) mergedMessageIds.add(m.id)
+        })
+      }
     }
 
     // 2. Filter dot messages
@@ -117,6 +121,11 @@ export class ContextBuilder {
     // 4.5. Inject activation completions if preserve_thinking_context is enabled
     if (config.preserve_thinking_context && activations && activations.length > 0) {
       this.injectActivationCompletions(participantMessages, activations, config.innerName)
+    }
+
+    // 4.6. Inject plugin context injections at calculated depths
+    if (pluginInjections && pluginInjections.length > 0) {
+      this.insertPluginInjections(participantMessages, pluginInjections, messages)
     }
 
     // 5. Apply limits on final assembled context (after images & tools added)
@@ -792,6 +801,12 @@ export class ContextBuilder {
     activations: Activation[],
     botName: string
   ): void {
+    logger.debug({
+      activationCount: activations.length,
+      botName,
+      messageCount: messages.length,
+    }, 'Starting activation completion injection')
+    
     // Build a map of messageId -> completion
     const completionMap = new Map<string, { activation: Activation; completion: Completion }>()
     for (const activation of activations) {
@@ -801,6 +816,11 @@ export class ContextBuilder {
         }
       }
     }
+    
+    logger.debug({
+      completionMapSize: completionMap.size,
+      completionMapKeys: Array.from(completionMap.keys()),
+    }, 'Built completion map')
     
     // Build phantom insertions: messageId -> completions to insert after
     const phantomInsertions = new Map<string, Completion[]>()
@@ -820,6 +840,14 @@ export class ContextBuilder {
       }
     }
     
+    // Log bot messages in context for debugging
+    const botMessages = messages.filter(m => m.participant === botName)
+    logger.debug({
+      botMessageCount: botMessages.length,
+      botMessageIds: botMessages.map(m => m.messageId),
+      botName,
+    }, 'Bot messages in context')
+    
     // Process messages: replace content and insert phantoms
     // Process in reverse to avoid index shifting issues
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -835,6 +863,21 @@ export class ContextBuilder {
           originalLength: msg.content[0]?.type === 'text' ? (msg.content[0] as any).text?.length : 0,
           newLength: completion.text.length 
         }, 'Injected full completion into bot message')
+      } else if (msg.messageId && msg.participant === botName) {
+        // Log why we didn't inject with more detail
+        const mapKeys = Array.from(completionMap.keys())
+        const exactMatch = mapKeys.find(k => k === msg.messageId)
+        const includesMatch = mapKeys.find(k => k.includes(msg.messageId) || msg.messageId.includes(k))
+        logger.debug({
+          messageId: msg.messageId,
+          messageIdType: typeof msg.messageId,
+          participant: msg.participant,
+          inCompletionMap: completionMap.has(msg.messageId),
+          mapKeyCount: mapKeys.length,
+          exactMatch: exactMatch || 'none',
+          includesMatch: includesMatch || 'none',
+          firstFewKeys: mapKeys.slice(0, 3),
+        }, 'Bot message NOT injected')
       }
       
       // Check if phantoms should be inserted after this message
@@ -853,6 +896,90 @@ export class ContextBuilder {
           phantomCount: phantomMessages.length 
         }, 'Inserted phantom completions')
       }
+    }
+  }
+  
+  /**
+   * Insert plugin context injections at calculated depths
+   * 
+   * Depth 0 = after the most recent message
+   * Depth N = N messages from the end
+   * 
+   * Injections age from 0 (when modified) toward their targetDepth.
+   */
+  private insertPluginInjections(
+    messages: ParticipantMessage[],
+    injections: ContextInjection[],
+    discordMessages: DiscordMessage[]
+  ): void {
+    if (injections.length === 0) return
+    
+    // Build message ID -> position map for depth calculation
+    const messagePositions = new Map<string, number>()
+    for (let i = 0; i < discordMessages.length; i++) {
+      messagePositions.set(discordMessages[i]!.id, i)
+    }
+    
+    // Calculate current depth for each injection
+    const injectionsWithDepth = injections.map(injection => {
+      let currentDepth: number
+      
+      if (!injection.lastModifiedAt) {
+        // No modification tracking - settled at target
+        currentDepth = injection.targetDepth
+      } else {
+        const position = messagePositions.get(injection.lastModifiedAt)
+        if (position === undefined) {
+          // Message not in context - assume settled
+          currentDepth = injection.targetDepth
+        } else {
+          // Calculate messages since modification
+          const messagesSince = discordMessages.length - 1 - position
+          // Depth is min of messagesSince and targetDepth
+          currentDepth = Math.min(messagesSince, injection.targetDepth)
+        }
+      }
+      
+      return { injection, currentDepth }
+    })
+    
+    // Sort by depth (deepest first, so we insert from back to front)
+    // Then by priority (higher first)
+    injectionsWithDepth.sort((a, b) => {
+      if (a.currentDepth !== b.currentDepth) {
+        return b.currentDepth - a.currentDepth  // Deeper first
+      }
+      return (b.injection.priority || 0) - (a.injection.priority || 0)
+    })
+    
+    // Insert each injection at its calculated position
+    for (const { injection, currentDepth } of injectionsWithDepth) {
+      // Convert depth to insertion index (from the END of the array)
+      // Depth 0 = after last message = messages.length
+      // Depth 1 = before last message = messages.length - 1
+      const insertIndex = Math.max(0, messages.length - currentDepth)
+      
+      // Convert content to ContentBlock[]
+      const content: ContentBlock[] = typeof injection.content === 'string'
+        ? [{ type: 'text', text: injection.content }]
+        : injection.content
+      
+      // Create the injection message
+      const injectionMessage: ParticipantMessage = {
+        participant: injection.asSystem ? 'System' : 'System>[plugin]',
+        content,
+        // No messageId - synthetic injection
+      }
+      
+      messages.splice(insertIndex, 0, injectionMessage)
+      
+      logger.debug({
+        injectionId: injection.id,
+        targetDepth: injection.targetDepth,
+        currentDepth,
+        insertIndex,
+        totalMessages: messages.length,
+      }, 'Inserted plugin context injection')
     }
   }
 

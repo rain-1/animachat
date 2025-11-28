@@ -183,12 +183,9 @@ export class ActivationStore {
           continue
         }
         
-        // Also check if anchor message exists (for context placement)
-        if (!existingMessageIds.has(stored.trigger.anchorMessageId)) {
-          // Anchor message deleted - skip activation
-          filteredCount++
-          continue
-        }
+        // Note: We no longer skip activations just because the anchor message is deleted.
+        // If bot messages still exist, we want to inject thinking into them.
+        // The anchor is only used for phantom placement, which will fall back gracefully.
         
         activations.push({
           ...stored,

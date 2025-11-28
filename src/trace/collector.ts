@@ -35,19 +35,35 @@ export function getCurrentTrace(): TraceCollector | undefined {
 
 /**
  * Run a function with a trace collector context
+ * 
+ * If the function throws, the error is recorded in the trace and the trace
+ * is still returned (along with the error) so it can be written to disk.
  */
 export async function withTrace<T>(
   channelId: string,
   triggeringMessageId: string,
   botId: string,
   fn: (trace: TraceCollector) => Promise<T>
-): Promise<{ result: T; trace: ActivationTrace }> {
+): Promise<{ result?: T; trace: ActivationTrace; error?: Error }> {
   const collector = new TraceCollector(channelId, triggeringMessageId, botId)
   
-  const result = await traceContext.run(collector, () => fn(collector))
-  const trace = collector.finalize()
-  
-  return { result, trace }
+  try {
+    const result = await traceContext.run(collector, () => fn(collector))
+    const trace = collector.finalize()
+    return { result, trace }
+  } catch (err) {
+    // Record the error in the trace
+    const error = err instanceof Error ? err : new Error(String(err))
+    collector.recordError('llm_call', error)  // Default to llm_call phase, could be refined
+    
+    // Log the error to the trace
+    collector.captureLog('error', `Activation failed: ${error.message}`, {
+      stack: error.stack,
+    })
+    
+    const trace = collector.finalize()
+    return { trace, error }
+  }
 }
 
 // ============================================================================
