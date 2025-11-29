@@ -962,7 +962,7 @@ const HTML = `<!DOCTYPE html>
       
       // Check URL for initial trace view or search
       const path = window.location.pathname;
-      const traceMatch = path.match(/^\/trace\/([a-zA-Z0-9-]+)/);
+      const traceMatch = path.match(/^\\/trace\\/([a-zA-Z0-9-]+)/);
       if (traceMatch) {
         // Direct link to trace
         loadTrace(traceMatch[1]);
