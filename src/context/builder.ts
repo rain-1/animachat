@@ -1042,34 +1042,41 @@ export class ContextBuilder {
     participantMessages: ParticipantMessage[],
     config: BotConfig
   ): string[] {
-    const sequences: string[] = []
+    // API limit: Anthropic and OpenAI both limit stop sequences to 4
+    const MAX_STOP_SEQUENCES = 4
 
-    // Get recent N unique participants (from most recent messages)
+    // Get recent N unique participants (from most recent messages), excluding the bot
     const recentParticipants: string[] = []
     const seen = new Set<string>()
 
     // Iterate backwards to get most recent participants
     for (let i = participantMessages.length - 1; i >= 0 && recentParticipants.length < config.recent_participant_count; i--) {
       const participant = participantMessages[i]?.participant
-      if (participant && !seen.has(participant)) {
+      // Skip the bot's own name - we don't want to stop on our own messages
+      if (participant && !seen.has(participant) && participant !== config.innerName) {
         seen.add(participant)
         recentParticipants.push(participant)
       }
     }
 
-    // Add participant names with colon
+    // Build sequences prioritized by importance:
+    // 1. Recent participant names (most likely to appear next)
+    // 2. Configured stop sequences (user-specified)
+    // 3. System prefixes (rare but important)
+    const sequences: string[] = []
+    
+    // Add participant names with colon (priority - these are the most common stops)
     for (const participant of recentParticipants) {
       sequences.push(`${participant}:`)
     }
 
-    // Add system message prefixes (bot should never generate these)
-    sequences.push('System<[', 'System>[')
-    
-    // Add conversation boundary marker (prevents hallucinating past context end)
-    sequences.push('<<HUMAN_CONVERSATION_END>>')
-
     // Add configured stop sequences
     sequences.push(...config.stop_sequences)
+
+    // Truncate to API limit, keeping the most recent/important participants
+    if (sequences.length > MAX_STOP_SEQUENCES) {
+      return sequences.slice(0, MAX_STOP_SEQUENCES)
+    }
 
     return sequences
   }
