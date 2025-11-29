@@ -1042,41 +1042,53 @@ export class ContextBuilder {
     participantMessages: ParticipantMessage[],
     config: BotConfig
   ): string[] {
-    // API limit: Anthropic and OpenAI both limit stop sequences to 4
-    const MAX_STOP_SEQUENCES = 4
+    const sequences: string[] = []
 
-    // Get recent N unique participants (from most recent messages), excluding the bot
+    // Get recent N unique participants (from most recent messages)
+    // Include both message authors AND mentioned users
     const recentParticipants: string[] = []
     const seen = new Set<string>()
 
-    // Iterate backwards to get most recent participants
+    // Iterate backwards to get most recent participants and their mentions
     for (let i = participantMessages.length - 1; i >= 0 && recentParticipants.length < config.recent_participant_count; i--) {
-      const participant = participantMessages[i]?.participant
-      // Skip the bot's own name - we don't want to stop on our own messages
-      if (participant && !seen.has(participant) && participant !== config.innerName) {
-        seen.add(participant)
-        recentParticipants.push(participant)
+      const msg = participantMessages[i]
+      if (!msg) continue
+      
+      // Add message author
+      if (msg.participant && !seen.has(msg.participant)) {
+        seen.add(msg.participant)
+        recentParticipants.push(msg.participant)
+      }
+      
+      // Extract mentions from text content (format: <@username>)
+      for (const block of msg.content) {
+        if (block.type === 'text') {
+          const mentionRegex = /<@(\w+(?:\.\w+)?)>/g
+          let match
+          while ((match = mentionRegex.exec(block.text)) !== null) {
+            const mentionedUser = match[1]!
+            if (!seen.has(mentionedUser) && recentParticipants.length < config.recent_participant_count) {
+              seen.add(mentionedUser)
+              recentParticipants.push(mentionedUser)
+            }
+          }
+        }
       }
     }
 
-    // Build sequences prioritized by importance:
-    // 1. Recent participant names (most likely to appear next)
-    // 2. Configured stop sequences (user-specified)
-    // 3. System prefixes (rare but important)
-    const sequences: string[] = []
-    
-    // Add participant names with colon (priority - these are the most common stops)
+    // Add participant names with colon
     for (const participant of recentParticipants) {
       sequences.push(`${participant}:`)
     }
 
+    // Add system message prefixes (bot should never generate these)
+    sequences.push('System<[', 'System>[')
+    
+    // Add conversation boundary marker (prevents hallucinating past context end)
+    sequences.push('<<HUMAN_CONVERSATION_END>>')
+
     // Add configured stop sequences
     sequences.push(...config.stop_sequences)
-
-    // Truncate to API limit, keeping the most recent/important participants
-    if (sequences.length > MAX_STOP_SEQUENCES) {
-      return sequences.slice(0, MAX_STOP_SEQUENCES)
-    }
 
     return sequences
   }
