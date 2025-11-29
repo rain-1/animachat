@@ -17,7 +17,12 @@ export interface LoadConfigParams {
 }
 
 export class ConfigSystem {
-  constructor(private configBasePath: string) {}
+  private emsMode: boolean
+  
+  constructor(private configBasePath: string) {
+    // Detect EMS mode: if EMS_PATH is set, use chapter2 layout
+    this.emsMode = !!process.env.EMS_PATH
+  }
 
   /**
    * Load and merge configuration for a specific bot/guild/channel
@@ -25,7 +30,7 @@ export class ConfigSystem {
   loadConfig(params: LoadConfigParams): BotConfig {
     const { botName, guildId, channelConfigs } = params
 
-    logger.debug({ botName, guildId }, 'Loading config')
+    logger.debug({ botName, guildId, emsMode: this.emsMode }, 'Loading config')
 
     // Load configs in priority order (each overrides previous)
     const configs: Partial<BotConfig>[] = [
@@ -49,10 +54,16 @@ export class ConfigSystem {
 
   /**
    * Load vendors configuration for LLM providers
+   * In EMS mode: <EMS_PATH>/config.yaml (vendors section)
+   * In default mode: <CONFIG_PATH>/shared.yaml (vendors section)
    */
   loadVendors(): Record<string, VendorConfig> {
-    const sharedPath = join(this.configBasePath, 'shared.yaml')
+    const sharedPath = this.emsMode
+      ? join(this.configBasePath, 'config.yaml')  // EMS: /opt/chapter2/ems/config.yaml
+      : join(this.configBasePath, 'shared.yaml')  // Default: ./config/shared.yaml
+      
     if (!existsSync(sharedPath)) {
+      logger.warn({ sharedPath, emsMode: this.emsMode }, 'Shared config not found')
       return {}
     }
 
@@ -62,21 +73,37 @@ export class ConfigSystem {
   }
 
   private loadSharedConfig(): Partial<BotConfig> {
-    return this.loadYAMLFile(join(this.configBasePath, 'shared.yaml'))
+    // In EMS mode, shared config is at <EMS_PATH>/config.yaml
+    // In default mode, it's at <CONFIG_PATH>/shared.yaml
+    const path = this.emsMode
+      ? join(this.configBasePath, 'config.yaml')
+      : join(this.configBasePath, 'shared.yaml')
+    return this.loadYAMLFile(path)
   }
 
   private loadGuildConfig(guildId: string): Partial<BotConfig> {
+    // Guild configs: same structure in both modes
+    // EMS: <EMS_PATH>/guilds/<guildId>.yaml (if exists)
+    // Default: <CONFIG_PATH>/guilds/<guildId>.yaml
     return this.loadYAMLFile(join(this.configBasePath, 'guilds', `${guildId}.yaml`))
   }
 
   private loadBotConfig(botName: string): Partial<BotConfig> {
-    return this.loadYAMLFile(join(this.configBasePath, 'bots', `${botName}.yaml`))
+    // In EMS mode: <EMS_PATH>/<botName>/config.yaml
+    // In default mode: <CONFIG_PATH>/bots/<botName>.yaml
+    const path = this.emsMode
+      ? join(this.configBasePath, botName, 'config.yaml')
+      : join(this.configBasePath, 'bots', `${botName}.yaml`)
+    return this.loadYAMLFile(path)
   }
 
   private loadBotGuildConfig(botName: string, guildId: string): Partial<BotConfig> {
-    return this.loadYAMLFile(
-      join(this.configBasePath, 'bots', `${botName}-${guildId}.yaml`)
-    )
+    // In EMS mode: <EMS_PATH>/<botName>/guilds/<guildId>.yaml
+    // In default mode: <CONFIG_PATH>/bots/<botName>-<guildId>.yaml
+    const path = this.emsMode
+      ? join(this.configBasePath, botName, 'guilds', `${guildId}.yaml`)
+      : join(this.configBasePath, 'bots', `${botName}-${guildId}.yaml`)
+    return this.loadYAMLFile(path)
   }
 
   private parseChannelConfig(yamlString: string, botName: string): Partial<BotConfig> {

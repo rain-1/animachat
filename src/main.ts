@@ -22,15 +22,36 @@ async function main() {
   try {
     logger.info('Starting Chapter3 bot framework')
 
+    // Support chapter2 EMS layout: EMS_PATH + BOT_NAME
+    // e.g., EMS_PATH=/opt/chapter2/ems BOT_NAME=StrangeSonnet4.5
+    // This loads:
+    //   - Shared config from <EMS_PATH>/config.yaml
+    //   - Bot config from <EMS_PATH>/<BOT_NAME>/config.yaml
+    //   - Discord token from <EMS_PATH>/<BOT_NAME>/discord_token
+    const emsPath = process.env.EMS_PATH
+    const botNameOverride = process.env.BOT_NAME
+
     // Get configuration paths
-    const configPath = process.env.CONFIG_PATH || './config'
+    let configPath: string
+    let tokenFilePath: string
+    
+    if (emsPath && botNameOverride) {
+      // Chapter2 EMS layout
+      configPath = emsPath  // ConfigSystem will handle the structure
+      tokenFilePath = join(emsPath, botNameOverride, 'discord_token')
+      logger.info({ emsPath, botName: botNameOverride }, 'Using chapter2 EMS layout')
+    } else {
+      // Default chapterx layout
+      configPath = process.env.CONFIG_PATH || './config'
+      tokenFilePath = process.env.DISCORD_TOKEN_FILE 
+        ? join(process.cwd(), process.env.DISCORD_TOKEN_FILE)
+        : join(process.cwd(), 'discord_token')
+    }
+    
     const toolsPath = process.env.TOOLS_PATH || './tools'
     const cachePath = process.env.CACHE_PATH || './cache'
 
-    // Read Discord token from file (configurable via DISCORD_TOKEN_FILE env var)
-    const tokenFilePath = process.env.DISCORD_TOKEN_FILE 
-      ? join(process.cwd(), process.env.DISCORD_TOKEN_FILE)
-      : join(process.cwd(), 'discord_token')
+    // Read Discord token from file
     let discordToken: string
     
     try {
@@ -45,7 +66,7 @@ async function main() {
       throw new Error('discord_token file is empty')
     }
 
-    logger.info({ configPath, toolsPath, cachePath }, 'Configuration loaded')
+    logger.info({ configPath, toolsPath, cachePath, emsMode: !!emsPath }, 'Configuration loaded')
 
     // Initialize components
     const queue = new EventQueue()
@@ -100,12 +121,13 @@ async function main() {
       throw new Error('Failed to get bot identity from Discord')
     }
 
-    // Use Discord username as bot name for config loading
-    logger.info({ botUsername, botUserId }, 'Bot identity established')
+    // Use BOT_NAME override (for EMS mode) or Discord username for config loading
+    const botName = botNameOverride || botUsername
+    logger.info({ botUsername, botUserId, botName, emsMode: !!emsPath }, 'Bot identity established')
 
-    // Create and start agent loop (using Discord username as bot ID for config)
+    // Create and start agent loop
     const agentLoop = new AgentLoop(
-      botUsername,  // Bot name is derived from Discord username, not env var
+      botName,  // Bot name from BOT_NAME env var (EMS mode) or Discord username
       queue,
       connector,
       stateManager,
