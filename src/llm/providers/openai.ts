@@ -32,7 +32,13 @@ export class OpenAIProvider implements LLMProvider {
 
   constructor(config: OpenAIProviderConfig) {
     this.apiKey = config.apiKey
-    this.baseUrl = config.baseUrl || 'https://api.openai.com/v1'
+    // Normalize base URL: strip trailing /chat/completions or /completions if present
+    // This ensures compatibility with chapter2 configs that may have full paths
+    let baseUrl = config.baseUrl || 'https://api.openai.com/v1'
+    baseUrl = baseUrl.replace(/\/chat\/completions\/?$/, '')
+    baseUrl = baseUrl.replace(/\/completions\/?$/, '')
+    baseUrl = baseUrl.replace(/\/models\/?$/, '')  // Some configs have /v1/models
+    this.baseUrl = baseUrl
   }
 
   async complete(request: ProviderRequest): Promise<LLMCompletion> {
