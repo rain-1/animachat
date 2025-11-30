@@ -25,38 +25,38 @@ export class AnthropicProvider implements LLMProvider {
     const callId = trace?.startLLMCall(trace.getLLMCallCount())
     const startTime = Date.now()
     
+    // Extract system messages and convert to top-level parameter
+    const systemMessages = request.messages
+      .filter((m) => m.role === 'system')
+      .map((m) => (typeof m.content === 'string' ? m.content : ''))
+      .join('\n\n')
+
+    const nonSystemMessages = request.messages.filter((m) => m.role !== 'system')
+
+    // Build request params (some models don't support both temperature and top_p)
+    const params: any = {
+      model: request.model,
+      max_tokens: request.max_tokens,
+      system: systemMessages || undefined,
+      messages: nonSystemMessages,
+      stop_sequences: request.stop_sequences,
+    }
+
+    // Only include temperature (not top_p) to avoid API errors with newer models
+    if (request.temperature !== undefined) {
+      params.temperature = request.temperature
+    }
+
+    // Add tools if provided
+    if (request.tools && request.tools.length > 0) {
+      params.tools = request.tools
+    }
+
+    // Log request to file BEFORE making the call (so we have it even on error)
+    const requestRef = this.logRequestToFile(params)
+    
     try {
       logger.debug({ model: request.model, traceId: trace?.getTraceId() }, 'Calling Anthropic API')
-
-      // Extract system messages and convert to top-level parameter
-      const systemMessages = request.messages
-        .filter((m) => m.role === 'system')
-        .map((m) => (typeof m.content === 'string' ? m.content : ''))
-        .join('\n\n')
-
-      const nonSystemMessages = request.messages.filter((m) => m.role !== 'system')
-
-      // Build request params (some models don't support both temperature and top_p)
-      const params: any = {
-        model: request.model,
-        max_tokens: request.max_tokens,
-        system: systemMessages || undefined,
-        messages: nonSystemMessages,
-        stop_sequences: request.stop_sequences,
-      }
-
-      // Only include temperature (not top_p) to avoid API errors with newer models
-      if (request.temperature !== undefined) {
-        params.temperature = request.temperature
-      }
-
-      // Add tools if provided
-      if (request.tools && request.tools.length > 0) {
-        params.tools = request.tools
-      }
-
-      // Log request to file (and get ref for trace)
-      const requestRef = this.logRequestToFile(params)
 
       const response = await this.client.messages.create(params)
 
@@ -140,11 +140,23 @@ export class AnthropicProvider implements LLMProvider {
         raw: response,
       }
     } catch (error) {
-      // Record error to trace
+      // Record error to trace (request body was already logged above)
       if (trace && callId) {
         trace.failLLMCall(callId, {
           message: error instanceof Error ? error.message : String(error),
           retryCount: 0,
+        }, {
+          requestBodyRef: requestRef,
+          model: request.model,
+          request: {
+            messageCount: request.messages.length,
+            systemPromptLength: systemMessages?.length || 0,
+            hasTools: !!(request.tools && request.tools.length > 0),
+            toolCount: request.tools?.length || 0,
+            temperature: request.temperature,
+            maxTokens: request.max_tokens,
+            stopSequences: request.stop_sequences,
+          },
         })
       }
       logger.error({ error }, 'Anthropic API error')

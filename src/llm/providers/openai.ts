@@ -32,13 +32,7 @@ export class OpenAIProvider implements LLMProvider {
 
   constructor(config: OpenAIProviderConfig) {
     this.apiKey = config.apiKey
-    // Normalize base URL: strip trailing /chat/completions or /completions if present
-    // This ensures compatibility with chapter2 configs that may have full paths
-    let baseUrl = config.baseUrl || 'https://api.openai.com/v1'
-    baseUrl = baseUrl.replace(/\/chat\/completions\/?$/, '')
-    baseUrl = baseUrl.replace(/\/completions\/?$/, '')
-    baseUrl = baseUrl.replace(/\/models\/?$/, '')  // Some configs have /v1/models
-    this.baseUrl = baseUrl
+    this.baseUrl = config.baseUrl || 'https://api.openai.com/v1'
   }
 
   async complete(request: ProviderRequest): Promise<LLMCompletion> {
@@ -46,40 +40,46 @@ export class OpenAIProvider implements LLMProvider {
     const callId = trace?.startLLMCall(trace.getLLMCallCount())
     const startTime = Date.now()
 
+    // Build request body BEFORE try block so we can log it even on error
+    // Note: Newer OpenAI models (gpt-5.x, o1, o3) use max_completion_tokens instead of max_tokens
+    const body: any = {
+      model: request.model,
+      messages: request.messages.map(m => ({
+        role: m.role,
+        content: this.transformContent(m.content),
+      })),
+      max_completion_tokens: request.max_tokens,
+      temperature: request.temperature,
+    }
+
+    // Add stop sequences if provided
+    if (request.stop_sequences && request.stop_sequences.length > 0) {
+      body.stop = request.stop_sequences
+    }
+
+    // Add tools if provided (OpenAI native function calling)
+    if (request.tools && request.tools.length > 0) {
+      body.tools = request.tools.map(tool => ({
+        type: 'function',
+        function: {
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.inputSchema,
+        }
+      }))
+    }
+
+    // Log request to file BEFORE making the call (so we have it even on error)
+    const requestRef = this.logRequestToFile(body)
+
+    // Calculate system prompt length for trace
+    const systemMessages = request.messages.filter(m => m.role === 'system')
+    const systemPromptLength = systemMessages
+      .map(m => typeof m.content === 'string' ? m.content.length : 0)
+      .reduce((a, b) => a + b, 0)
+
     try {
       logger.debug({ model: request.model, baseUrl: this.baseUrl, traceId: trace?.getTraceId() }, 'Calling OpenAI-compatible API')
-
-      // Build request body
-      // Note: Newer OpenAI models (gpt-5.x, o1, o3) use max_completion_tokens instead of max_tokens
-      const body: any = {
-        model: request.model,
-        messages: request.messages.map(m => ({
-          role: m.role,
-          content: this.transformContent(m.content),
-        })),
-        max_completion_tokens: request.max_tokens,
-        temperature: request.temperature,
-      }
-
-      // Add stop sequences if provided
-      if (request.stop_sequences && request.stop_sequences.length > 0) {
-        body.stop = request.stop_sequences
-      }
-
-      // Add tools if provided (OpenAI native function calling)
-      if (request.tools && request.tools.length > 0) {
-        body.tools = request.tools.map(tool => ({
-          type: 'function',
-          function: {
-            name: tool.name,
-            description: tool.description,
-            parameters: tool.inputSchema,
-          }
-        }))
-      }
-
-      // Log request to file
-      const requestRef = this.logRequestToFile(body)
 
       // Make API call
       const response = await fetch(`${this.baseUrl}/chat/completions`, {
@@ -97,7 +97,7 @@ export class OpenAIProvider implements LLMProvider {
         throw new Error(`OpenAI API error ${response.status}: ${errorText}`)
       }
 
-      const data = await response.json()
+      const data = await response.json() as any
 
       // Log response to file
       const responseRef = this.logResponseToFile(data)
@@ -143,11 +143,6 @@ export class OpenAIProvider implements LLMProvider {
 
       // Record to trace
       if (trace && callId) {
-        const systemMessages = request.messages.filter(m => m.role === 'system')
-        const systemPromptLength = systemMessages
-          .map(m => typeof m.content === 'string' ? m.content.length : 0)
-          .reduce((a, b) => a + b, 0)
-
         trace.completeLLMCall(
           callId,
           {
@@ -188,11 +183,23 @@ export class OpenAIProvider implements LLMProvider {
         raw: data,
       }
     } catch (error) {
-      // Record error to trace
+      // Record error to trace (request body was already logged above)
       if (trace && callId) {
         trace.failLLMCall(callId, {
           message: error instanceof Error ? error.message : String(error),
           retryCount: 0,
+        }, {
+          requestBodyRef: requestRef,
+          model: request.model,
+          request: {
+            messageCount: request.messages.length,
+            systemPromptLength,
+            hasTools: !!(request.tools && request.tools.length > 0),
+            toolCount: request.tools?.length || 0,
+            temperature: request.temperature,
+            maxTokens: request.max_tokens,
+            stopSequences: request.stop_sequences,
+          },
         })
       }
       logger.error({ error }, 'OpenAI API error')

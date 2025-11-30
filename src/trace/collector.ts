@@ -255,7 +255,15 @@ export class TraceCollector {
   /**
    * Record an LLM call error
    */
-  failLLMCall(callId: string, error: LLMCallInfo['error']): void {
+  failLLMCall(
+    callId: string, 
+    error: LLMCallInfo['error'],
+    options?: {
+      requestBodyRef?: string
+      model?: string
+      request?: LLMCallInfo['request']
+    }
+  ): void {
     if (!this.currentLLMCall || this.currentLLMCall.callId !== callId) {
       return
     }
@@ -265,13 +273,14 @@ export class TraceCollector {
       depth: this.currentLLMCall.depth,
       startedAt: this.currentLLMCall.startedAt,
       durationMs: Date.now() - this.currentLLMCall.startedAt.getTime(),
-      model: 'unknown',
-      request: {
+      model: options?.model || 'unknown',
+      request: options?.request || {
         messageCount: 0,
         systemPromptLength: 0,
         hasTools: false,
         toolCount: 0,
       },
+      requestBodyRef: options?.requestBodyRef,
       response: {
         stopReason: 'end_turn',
         contentBlocks: 0,
