@@ -127,6 +127,7 @@ export interface ModelConfig {
   mode: 'prefill' | 'chat'
   prefill_thinking?: boolean  // If true, prefill with <thinking> tag
   botInnerName: string  // For building stop sequences
+  chatPersonaPrompt?: boolean  // If true, add persona instruction system prompt and prompt ending for chat mode
 }
 
 /**
@@ -169,6 +170,9 @@ export interface BotConfig {
   
   // Stop sequences
   stop_sequences: string[]
+  
+  // Chat mode persona
+  chat_persona_prompt?: boolean  // If true, add persona instruction system prompt and prompt ending for chat mode
   
   // Retries
   llm_retries: number

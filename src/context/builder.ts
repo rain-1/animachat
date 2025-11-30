@@ -1102,6 +1102,7 @@ export class ContextBuilder {
       mode: config.mode,
       prefill_thinking: config.prefill_thinking,
       botInnerName: config.innerName,
+      chatPersonaPrompt: config.chat_persona_prompt,
     }
   }
 }

@@ -271,6 +271,8 @@ export class LLMMiddleware {
 
   private transformToChat(request: LLMRequest, _provider: LLMProvider): ProviderRequest {
     const messages: ProviderMessage[] = []
+    const botName = request.config.botInnerName
+    const usePersonaPrompt = request.config.chatPersonaPrompt
 
     // Add system prompt
     if (request.system_prompt) {
@@ -279,9 +281,16 @@ export class LLMMiddleware {
         content: request.system_prompt,
       })
     }
+    
+    // Add persona instruction if configured
+    if (usePersonaPrompt) {
+      messages.push({
+        role: 'system',
+        content: `Respond to the chat, where your username is shown as ${botName}. Only respond with the content of your message, without including your username.`,
+      })
+    }
 
     // Group consecutive non-bot messages
-    const botName = request.config.botInnerName
     let buffer: ParticipantMessage[] = []
 
     for (const msg of request.messages) {
@@ -305,9 +314,22 @@ export class LLMMiddleware {
       }
     }
 
-    // Flush remaining buffer
+    // Flush remaining buffer (this is the last user message)
     if (buffer.length > 0) {
-      messages.push(this.mergeToUserMessage(buffer))
+      const userMsg = this.mergeToUserMessage(buffer)
+      // Add persona prompt ending if configured
+      if (usePersonaPrompt) {
+        if (typeof userMsg.content === 'string') {
+          userMsg.content = `${userMsg.content}\n\nAI persona you describe:\n${botName}:"`
+        } else if (Array.isArray(userMsg.content)) {
+          // Find last text block and append
+          const lastTextIdx = userMsg.content.map((c: any) => c.type).lastIndexOf('text')
+          if (lastTextIdx >= 0) {
+            (userMsg.content[lastTextIdx] as any).text += `\n\nAI persona you describe:\n${botName}:"`
+          }
+        }
+      }
+      messages.push(userMsg)
     }
 
     return {
