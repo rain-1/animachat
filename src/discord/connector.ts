@@ -183,8 +183,9 @@ export class DiscordConnector {
         throw new DiscordError(`Channel ${channelId} not found or not text-based`)
       }
 
-      // Reset history origin tracker for this fetch
+      // Reset history trackers for this fetch
       this.lastHistoryOriginChannelId = null
+      this.lastHistoryDidClear = false
 
       // Use recursive fetch with automatic .history processing
       // Note: Don't pass firstMessageId to recursive call - each .history has its own boundaries
@@ -208,7 +209,10 @@ export class DiscordConnector {
       
       // For threads: implicitly fetch parent channel context up to the branching point
       // This happens even without an explicit .history message
-      if (channel.isThread()) {
+      // Skip if .history explicitly cleared context
+      if (channel.isThread() && this.lastHistoryDidClear) {
+        logger.debug('Skipping parent context fetch - .history cleared context')
+      } else if (channel.isThread()) {
         startProfile('threadParentFetch')
         const thread = channel as any  // Discord.js ThreadChannel
         const parentChannel = thread.parent as TextChannel
@@ -358,29 +362,16 @@ export class DiscordConnector {
     }, this.options.maxBackoffMs)
   }
 
-  private parseHistoryCommand(content: string): { first?: string; last: string } | null {
+  private parseHistoryCommand(content: string): { first?: string; last: string } | null | false {
     const lines = content.split('\n')
-    
-    // Find the --- separator (if present), skipping blank lines
-    let separatorIndex = -1
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i]?.trim()
-      if (line === '---') {
-        separatorIndex = i
-        break
-      }
-      // If we hit a non-empty, non-separator line before finding ---, no separator
-      if (line && line !== '') {
-        break
-      }
+    if (lines.length < 2 || lines[1] !== '---') {
+      return false  // Malformed command
     }
 
     let first: string | undefined
     let last: string | undefined
 
-    // Parse fields - start after separator if found, otherwise after first line
-    const startIndex = separatorIndex >= 0 ? separatorIndex + 1 : 1
-    for (let i = startIndex; i < lines.length; i++) {
+    for (let i = 2; i < lines.length; i++) {
       const line = lines[i]?.trim()
       if (!line) continue
 
@@ -389,10 +380,9 @@ export class DiscordConnector {
       } else if (line.startsWith('last:')) {
         last = line.substring(5).trim()
       }
-      // Note: 'root:' is for Chapter2 tree tracking, not supported in Chapter3 yet
     }
 
-    // No last field = clear history (even if other fields like root: are present)
+    // No last field = empty body = clear history
     if (!last) {
       return null
     }
@@ -404,6 +394,12 @@ export class DiscordConnector {
    * Track history origin during recursive fetch (reset per fetchContext call)
    */
   private lastHistoryOriginChannelId: string | null = null
+  
+  /**
+   * Track whether .history cleared context (reset per fetchContext call)
+   * When true, parent channel context should not be fetched for threads
+   */
+  private lastHistoryDidClear: boolean = false
 
   /**
    * Recursively fetch messages with .history support
@@ -521,6 +517,7 @@ export class DiscordConnector {
             if (historyRange === null) {
               // Empty .history - clear history, continue with messages after
               logger.debug('Empty .history command - clearing prior history')
+              this.lastHistoryDidClear = true  // Signal to skip parent fetch for threads
               return results
             } else if (historyRange) {
               // Recursively fetch from history target
