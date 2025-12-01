@@ -166,6 +166,7 @@ export class ContextBuilder {
     const request: LLMRequest = {
       messages: participantMessages,
       system_prompt: config.system_prompt,
+      context_prefix: config.context_prefix,
       config: this.extractModelConfig(config, botDiscordUsername),
       tools: config.tools_enabled ? undefined : undefined,  // Tools added by Agent Loop
       stop_sequences,

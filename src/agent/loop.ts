@@ -10,7 +10,7 @@ import { ConfigSystem } from '../config/system.js'
 import { ContextBuilder, BuildContextParams } from '../context/builder.js'
 import { LLMMiddleware } from '../llm/middleware.js'
 import { ToolSystem } from '../tools/system.js'
-import { Event, BotConfig } from '../types.js'
+import { Event, BotConfig, DiscordMessage } from '../types.js'
 import { logger, withActivationLogging } from '../utils/logger.js'
 import { sleep } from '../utils/retry.js'
 import { 
@@ -823,6 +823,10 @@ export class AgentLoop {
         responseLength: responseText.length
       }, 'Extracted response text')
 
+      // Truncate if model starts speaking as another participant (post-hoc stop sequence)
+      const truncateResult = this.truncateAtParticipant(responseText, discordContext.messages, config.innerName)
+      responseText = truncateResult.text
+
       // Strip ALL <thinking>...</thinking> sections (respecting backtick escaping)
       const { stripped: strippedResponse, content: thinkingContents } = this.stripThinkingBlocks(responseText)
       
@@ -1332,6 +1336,44 @@ export class AgentLoop {
       ...lastCompletion,
       content: [{ type: 'text', text: accumulatedText }],
     }
+  }
+
+  /**
+   * Truncate completion text if the model starts speaking as another participant.
+   * Uses the full participant list from the conversation (not just recent ones in stop sequences).
+   */
+  private truncateAtParticipant(text: string, messages: DiscordMessage[], botName: string): { text: string; truncatedAt: string | null } {
+    // Collect ALL unique participant names from the conversation
+    const participants = new Set<string>()
+    for (const msg of messages) {
+      if (msg.author && msg.author !== botName) {
+        participants.add(msg.author)
+      }
+    }
+
+    if (participants.size === 0) {
+      return { text, truncatedAt: null }
+    }
+
+    // Find the earliest occurrence of any "\nparticipant:" pattern
+    let earliestIndex = -1
+    let truncatedAt: string | null = null
+
+    for (const participant of participants) {
+      const pattern = `\n${participant}:`
+      const index = text.indexOf(pattern)
+      if (index !== -1 && (earliestIndex === -1 || index < earliestIndex)) {
+        earliestIndex = index
+        truncatedAt = participant
+      }
+    }
+
+    if (earliestIndex !== -1) {
+      logger.info({ truncatedAt, position: earliestIndex, originalLength: text.length }, 'Truncated completion at participant boundary')
+      return { text: text.substring(0, earliestIndex), truncatedAt }
+    }
+
+    return { text, truncatedAt: null }
   }
 }
 

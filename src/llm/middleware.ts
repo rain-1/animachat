@@ -121,11 +121,32 @@ export class LLMMiddleware {
     // Everything AFTER (including the section containing it) does NOT
     let passedCacheMarker = false
     
-    // Add system prompt if present
+    // Add system prompt if present (with cache_control for prompt caching)
     if (request.system_prompt) {
       messages.push({
         role: 'system',
-        content: request.system_prompt,
+        content: [{ 
+          type: 'text', 
+          text: request.system_prompt,
+          cache_control: { type: 'ephemeral' }
+        }],
+      })
+    }
+    
+    // Add context prefix as first cached assistant message (for simulacrum seeding)
+    if (request.context_prefix) {
+      // Need a user message first (Anthropic requires user->assistant alternation)
+      messages.push({
+        role: 'user',
+        content: '[conversation begins]',
+      })
+      messages.push({
+        role: 'assistant',
+        content: [{ 
+          type: 'text', 
+          text: request.context_prefix,
+          cache_control: { type: 'ephemeral' }
+        }],
       })
     }
     
@@ -309,12 +330,14 @@ export class LLMMiddleware {
           messages.push(this.mergeToUserMessage(buffer))
           buffer = []
         }
-        // Add bot message as assistant
+        // Add bot message as assistant (skip if empty - API doesn't allow empty assistant messages)
         const text = this.extractText(msg.content)
-        messages.push({
-          role: 'assistant',
-          content: text,
-        })
+        if (text.trim()) {
+          messages.push({
+            role: 'assistant',
+            content: text,
+          })
+        }
       } else {
         // Add to buffer (including bot messages if botAsAssistant is false)
         buffer.push(msg)

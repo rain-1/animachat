@@ -16,6 +16,7 @@
 export interface LLMRequest {
   messages: ParticipantMessage[]
   system_prompt?: string
+  context_prefix?: string  // Inserted as first cached assistant message (for simulacrum seeding)
   config: ModelConfig
   tools?: ToolDefinition[]
   stop_sequences?: string[]
@@ -186,6 +187,8 @@ export interface BotConfig {
   // Misc
   system_prompt?: string
   system_prompt_file?: string  // Path to file containing system prompt (relative to config dir)
+  context_prefix?: string      // Prefix content to insert as first assistant message (cached)
+  context_prefix_file?: string // Path to file containing context prefix (relative to config dir)
   reply_on_random: number
   reply_on_name: boolean
   max_queued_replies: number

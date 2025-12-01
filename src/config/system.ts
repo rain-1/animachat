@@ -186,6 +186,18 @@ export class ConfigSystem {
       }
     }
 
+    // Load context prefix from file if specified (inserted as first cached assistant message)
+    let contextPrefix = config.context_prefix
+    if (config.context_prefix_file && !contextPrefix) {
+      const prefixPath = join(this.configBasePath, 'bots', config.context_prefix_file)
+      if (existsSync(prefixPath)) {
+        contextPrefix = readFileSync(prefixPath, 'utf-8')
+        logger.info({ path: prefixPath, length: contextPrefix.length }, 'Loaded context prefix from file')
+      } else {
+        logger.warn({ path: prefixPath }, 'Context prefix file not found')
+      }
+    }
+
     return {
       // Identity (required, no defaults)
       name: config.name || '',
@@ -236,6 +248,8 @@ export class ConfigSystem {
       // Misc
       system_prompt: systemPrompt,
       system_prompt_file: config.system_prompt_file,
+      context_prefix: contextPrefix,
+      context_prefix_file: config.context_prefix_file,
       reply_on_random: config.reply_on_random ?? 500,
       reply_on_name: config.reply_on_name ?? false,
       max_queued_replies: config.max_queued_replies || 1,
