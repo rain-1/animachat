@@ -3,10 +3,21 @@
     <!-- Sidebar -->
     <v-navigation-drawer
       v-model="drawer"
-      permanent
+      :temporary="isMobile"
+      :permanent="!isMobile"
       class="sidebar-drawer"
     >
       <div class="d-flex flex-column h-100">
+        <!-- Close button (visible on mobile) -->
+        <div v-if="isMobile" class="d-flex justify-end pa-2">
+          <v-btn
+            icon="mdi-close"
+            variant="text"
+            size="small"
+            @click="drawer = false"
+          />
+        </div>
+
         <!-- Fixed header section -->
         <div class="sidebar-header">
           <v-list>
@@ -147,7 +158,7 @@
     <v-main class="d-flex flex-column" style="height: 100vh;">
       <!-- Top Bar -->
       <v-app-bar density="compact">
-        <v-app-bar-nav-icon @click="drawer = !drawer" />
+        <v-app-bar-nav-icon v-if="isMobile" @click="drawer = !drawer" />
 
         <!-- Breadcrumb navigation with fixed title and scrollable bookmarks -->
         <div v-if="currentConversation" class="d-flex align-center breadcrumb-container">
@@ -159,8 +170,8 @@
             {{ currentConversation.title || 'New Conversation' }}
           </div>
 
-          <!-- Scrollable bookmarks section -->
-          <div v-if="bookmarksInActivePath.length > 0" class="d-flex align-center bookmarks-scroll-container">
+          <!-- Scrollable bookmarks section (hidden on mobile) -->
+          <div v-if="bookmarksInActivePath.length > 0 && !isMobile" class="d-flex align-center bookmarks-scroll-container">
             <v-icon icon="mdi-map-marker-right" size="small" class="mx-0" />
             <div ref="bookmarksScrollRef" class="bookmarks-scroll">
               <div class="d-flex align-center">
@@ -224,6 +235,7 @@
       <v-container
         ref="messagesContainer"
         class="flex-grow-1 overflow-y-auto messages-container"
+        :class="{ 'pa-0': isMobile }"
         style="max-height: calc(100vh - 160px);"
       >
         <div v-if="!currentConversation" class="text-center mt-12">
@@ -577,7 +589,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, nextTick } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { isEqual } from 'lodash-es';
 import { useStore } from '@/store';
@@ -602,6 +614,12 @@ const store = useStore();
 
 // DEBUG: Verify new code is loaded
 console.log('🔧 ConversationView loaded - UI bug fixes version - timestamp:', new Date().toISOString());
+
+// Mobile detection
+const isMobile = ref(false);
+const checkMobile = () => {
+  isMobile.value = window.innerWidth < 960;
+};
 
 const drawer = ref(true);
 const treeDrawer = ref(false);
@@ -806,6 +824,15 @@ watch(conversations, (newConversations) => {
 
 // Load initial data
 onMounted(async () => {
+  // Set up mobile detection
+  checkMobile();
+  window.addEventListener('resize', checkMobile);
+
+  // Start with drawer closed on mobile
+  if (isMobile.value) {
+    drawer.value = false;
+  }
+
   await store.loadModels();
   await store.loadSystemConfig();
   await store.loadConversations();
@@ -1001,12 +1028,22 @@ onMounted(async () => {
 
 });
 
+// Cleanup event listeners
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', checkMobile);
+});
+
 // Watch route changes
 watch(() => route.params.id, async (newId) => {
   if (newId) {
     // Clear selected branch when switching conversations
     if (selectedBranchForParent.value) {
       cancelBranchSelection();
+    }
+
+    // Close drawer on mobile when conversation is opened
+    if (isMobile.value) {
+      drawer.value = false;
     }
 
     await store.loadConversation(newId as string);
@@ -2278,5 +2315,29 @@ function formatDate(date: Date | string): string {
 .bookmark-item:hover {
   background-color: rgba(255, 255, 255, 0.1);
   opacity: 0.9;
+}
+
+/* Mobile responsive styles */
+@media (max-width: 960px) {
+  /* Make sidebar full width on mobile */
+  .sidebar-drawer {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* Remove padding from messages container on mobile */
+  .messages-container {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  /* Make conversation title take full available width on mobile */
+  .breadcrumb-container {
+    max-width: 100% !important;
+  }
+
+  .conversation-title {
+    max-width: 100% !important;
+  }
 }
 </style>
