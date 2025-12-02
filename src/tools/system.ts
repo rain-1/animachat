@@ -380,11 +380,15 @@ export class ToolSystem {
           timestamp: new Date(),
         }
       } catch (error: any) {
-        logger.error({ error, call }, 'Plugin tool execution failed')
+        const errorMessage = error?.message || error?.toString() || 'Unknown error'
+        logger.error({ 
+          error: { message: errorMessage, stack: error?.stack, name: error?.name },
+          call 
+        }, 'Plugin tool execution failed')
         return {
           callId: call.id,
           output: '',
-          error: error.message || 'Plugin tool execution failed',
+          error: errorMessage,
           timestamp: new Date(),
         }
       }
