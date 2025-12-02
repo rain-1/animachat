@@ -14,7 +14,7 @@
             icon="mdi-close"
             variant="text"
             density="comfortable"
-            @click="drawer = false"
+            @click.stop="closeDrawer"
             class="ml-auto"
           />
         </div>
@@ -158,7 +158,7 @@
     <v-main class="d-flex flex-column main-content" style="height: 100vh;">
       <!-- Top Bar -->
       <v-app-bar density="compact">
-        <v-app-bar-nav-icon @click="drawer = !drawer" />
+        <v-app-bar-nav-icon @click="toggleDrawer" />
 
         <!-- Breadcrumb navigation with fixed title and scrollable bookmarks -->
         <div v-if="currentConversation" class="d-flex align-center breadcrumb-container">
@@ -619,6 +619,12 @@ const isMobile = computed(() => mdAndDown.value);
 console.log('🔧 ConversationView loaded - UI bug fixes version - timestamp:', new Date().toISOString());
 
 const drawer = ref(!route.params.id);
+const toggleDrawer = () => {
+  drawer.value = !drawer.value;
+};
+const closeDrawer = () => {
+  drawer.value = false;
+};
 const drawerWidth = computed(() => isMobile.value ? '100%' : 320);
 const treeDrawer = ref(false);
 const importDialog = ref(false);
