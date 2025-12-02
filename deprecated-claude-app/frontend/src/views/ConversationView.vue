@@ -2,10 +2,11 @@
   <v-layout class="rounded rounded-md">
     <!-- Sidebar -->
     <v-navigation-drawer
-      v-model="drawer"
+      :model-value="drawer"
       :temporary="isMobile"
       :width="drawerWidth"
       :scrim="isMobile"
+      @update:model-value="setDrawer"
       class="sidebar-drawer"
     >
       <div class="d-flex flex-column h-100">
@@ -14,7 +15,7 @@
             icon="mdi-close"
             variant="text"
             density="comfortable"
-            @click.stop="closeDrawer"
+            @click.stop="setDrawer(false)"
             class="ml-auto"
           />
         </div>
@@ -618,13 +619,12 @@ const isMobile = computed(() => mdAndDown.value);
 // DEBUG: Verify new code is loaded
 console.log('🔧 ConversationView loaded - UI bug fixes version - timestamp:', new Date().toISOString());
 
-const drawer = ref(!route.params.id);
-const toggleDrawer = () => {
-  drawer.value = !drawer.value;
+const drawer = ref<boolean>(!route.params.id);
+const setDrawer = (value: boolean) => {
+  drawer.value = value;
 };
-const closeDrawer = () => {
-  drawer.value = false;
-};
+const toggleDrawer = () => setDrawer(!drawer.value);
+const closeDrawer = () => setDrawer(false);
 const drawerWidth = computed(() => isMobile.value ? '100%' : 320);
 const treeDrawer = ref(false);
 const importDialog = ref(false);
@@ -1025,7 +1025,7 @@ onMounted(async () => {
 
 // Watch route changes
 watch(() => route.params.id, async (newId) => {
-  drawer.value = !newId;
+  setDrawer(!newId);
   if (newId) {
     // Clear selected branch when switching conversations
     if (selectedBranchForParent.value) {
