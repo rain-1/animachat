@@ -121,6 +121,13 @@ export class LLMMiddleware {
     // Everything AFTER (including the section containing it) does NOT
     let passedCacheMarker = false
     
+    logger.debug({ 
+      hasSystemPrompt: !!request.system_prompt,
+      systemPromptLength: request.system_prompt?.length,
+      hasContextPrefix: !!request.context_prefix,
+      contextPrefixLength: request.context_prefix?.length
+    }, 'transformToPrefill start')
+    
     // Add system prompt if present (with cache_control for prompt caching)
     if (request.system_prompt) {
       messages.push({
