@@ -3,10 +3,21 @@
     <!-- Sidebar -->
     <v-navigation-drawer
       v-model="drawer"
-      permanent
+      :temporary="isMobile"
+      :width="drawerWidth"
+      :scrim="isMobile"
       class="sidebar-drawer"
     >
       <div class="d-flex flex-column h-100">
+        <div class="sidebar-controls" v-if="isMobile">
+          <v-btn
+            icon="mdi-close"
+            variant="text"
+            density="comfortable"
+            @click="drawer = false"
+            class="ml-auto"
+          />
+        </div>
         <!-- Fixed header section -->
         <div class="sidebar-header">
           <v-list>
@@ -144,7 +155,7 @@
     </v-navigation-drawer>
 
     <!-- Main Content -->
-    <v-main class="d-flex flex-column" style="height: 100vh;">
+    <v-main class="d-flex flex-column main-content" style="height: 100vh;">
       <!-- Top Bar -->
       <v-app-bar density="compact">
         <v-app-bar-nav-icon @click="drawer = !drawer" />
@@ -204,8 +215,8 @@
         </v-chip>
         
         <!-- Metrics Display -->
-        <MetricsDisplay 
-          v-if="currentConversation"
+        <MetricsDisplay
+          v-if="currentConversation && !isMobile"
           :conversation-id="currentConversation.id"
           class="mr-2"
         />
@@ -223,8 +234,9 @@
       <!-- Messages Area -->
       <v-container
         ref="messagesContainer"
-        class="flex-grow-1 overflow-y-auto messages-container"
+        class="flex-grow-1 overflow-y-auto messages-container pa-0"
         style="max-height: calc(100vh - 160px);"
+        fluid
       >
         <div v-if="!currentConversation" class="text-center mt-12">
           <v-icon size="64" color="grey">mdi-message-text-outline</v-icon>
@@ -257,7 +269,7 @@
       </v-container>
 
       <!-- Input Area -->
-      <v-container v-if="currentConversation" class="pa-4" style="padding-top: 0 !important">
+      <v-container v-if="currentConversation" class="pa-4 pt-0" fluid>
         <!-- Branch selection indicator -->
         <v-alert
           v-if="selectedBranchForParent"
@@ -584,6 +596,7 @@ import { useStore } from '@/store';
 import { api } from '@/services/api';
 import type { Conversation, Message, Participant, Model, Bookmark } from '@deprecated-claude/shared';
 import { UpdateParticipantSchema } from '@deprecated-claude/shared';
+import { useDisplay } from 'vuetify';
 import MessageComponent from '@/components/MessageComponent.vue';
 import ImportDialogV2 from '@/components/ImportDialogV2.vue';
 import SettingsDialog from '@/components/SettingsDialog.vue';
@@ -599,11 +612,14 @@ import { getModelColor } from '@/utils/modelColors';
 const route = useRoute();
 const router = useRouter();
 const store = useStore();
+const { mdAndDown } = useDisplay();
+const isMobile = computed(() => mdAndDown.value);
 
 // DEBUG: Verify new code is loaded
 console.log('🔧 ConversationView loaded - UI bug fixes version - timestamp:', new Date().toISOString());
 
-const drawer = ref(true);
+const drawer = ref(!route.params.id);
+const drawerWidth = computed(() => isMobile.value ? '100%' : 320);
 const treeDrawer = ref(false);
 const importDialog = ref(false);
 const settingsDialog = ref(false);
@@ -1003,6 +1019,7 @@ onMounted(async () => {
 
 // Watch route changes
 watch(() => route.params.id, async (newId) => {
+  drawer.value = !newId;
   if (newId) {
     // Clear selected branch when switching conversations
     if (selectedBranchForParent.value) {
@@ -2090,6 +2107,10 @@ function formatDate(date: Date | string): string {
   position: relative;
 }
 
+.main-content {
+  width: 100%;
+}
+
 /* Force scrollbar to always show on macOS/webkit */
 .messages-container::-webkit-scrollbar {
   -webkit-appearance: none;
@@ -2182,6 +2203,10 @@ function formatDate(date: Date | string): string {
   display: flex;
   flex-direction: column;
   overflow: hidden !important;
+}
+
+.sidebar-controls {
+  padding: 8px 12px 0 12px;
 }
 
 .sidebar-header {
